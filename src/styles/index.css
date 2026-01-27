@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Window drag region (for frameless/custom title bar) */
+.drag-region {
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent buttons and interactive elements from being draggable */
+.drag-region button,
+.drag-region input,
+.drag-region a,
+.drag-region select,
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* Tree node styles */
+.tree-node {
+  @apply flex items-center gap-2 px-2 py-1 cursor-pointer rounded;
+}
+
+.tree-node:hover {
+  @apply bg-i3x-surface;
+}
+
+.tree-node.selected {
+  @apply bg-i3x-primary/20 text-i3x-primary;
+}
+
+/* Value flash animation */
+@keyframes value-flash {
+  0% { background-color: rgba(34, 197, 94, 0.3); }
+  100% { background-color: transparent; }
+}
+
+.value-updated {
+  animation: value-flash 0.5s ease-out;
+}
+
+/* Panel resize handle */
+.resize-handle {
+  @apply bg-i3x-border hover:bg-i3x-primary transition-colors cursor-col-resize;
+}
+
+.resize-handle-horizontal {
+  @apply cursor-row-resize;
+}
+
+/* Quality indicator */
+.quality-good {
+  @apply text-i3x-success;
+}
+
+.quality-bad {
+  @apply text-i3x-error;
+}
+
+.quality-unknown {
+  @apply text-i3x-warning;
+}
