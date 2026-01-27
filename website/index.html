@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>i3X Explorer - Desktop Client for I3X API Servers</title>
+    <meta name="description" content="A cross-platform desktop application for browsing and monitoring I3X (Industrial Information Interface eXchange) API servers. Browse namespaces, object types, and instances with real-time subscriptions.">
+    <meta name="keywords" content="I3X, CESMII, Ace Technologies, Industrial IoT, Manufacturing, API Explorer, Desktop Client, OPC UA, MQTT">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="i3X Explorer">
+    <meta property="og:description" content="Desktop client for exploring I3X API servers">
+    <meta property="og:image" content="icon-512.png">
+    <meta property="og:type" content="website">
+
+    <link rel="icon" type="image/png" href="icon-64.png">
+
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #1e40af;
+            --text: #1f2937;
+            --text-light: #6b7280;
+            --bg: #ffffff;
+            --bg-alt: #f3f4f6;
+            --border: #e5e7eb;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgba(3, 40, 126, 0.673);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--bg);
+        }
+
+        a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 80px 0 60px;
+            text-align: center;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            width: 128px;
+            height: 128px;
+            border-radius: 24px;
+            box-shadow: var(--shadow-lg);
+            margin-bottom: 24px;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .hero .tagline {
+            font-size: 1.25rem;
+            opacity: 0.9;
+            margin-bottom: 32px;
+        }
+
+        .badges {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 32px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.15);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.875rem;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: white;
+            color: var(--primary-dark);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+
+        /* Screenshots Section */
+        .screenshots {
+            padding: 60px 0;
+            background: var(--bg-alt);
+        }
+
+        .screenshots h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 40px;
+        }
+
+        .screenshot-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .screenshot {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .screenshot:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .screenshot img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .screenshot-caption {
+            padding: 16px;
+            font-size: 0.875rem;
+            color: var(--text-light);
+            text-align: center;
+        }
+
+        /* Features Section */
+        .features {
+            padding: 80px 0;
+        }
+
+        .features h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+
+        .features .subtitle {
+            text-align: center;
+            color: var(--text-light);
+            margin-bottom: 48px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 32px;
+        }
+
+        .feature {
+            text-align: center;
+            padding: 24px;
+        }
+
+        .feature-icon {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 28px;
+        }
+
+        .feature h3 {
+            font-size: 1.25rem;
+            margin-bottom: 8px;
+        }
+
+        .feature p {
+            color: var(--text-light);
+            font-size: 0.95rem;
+        }
+
+        /* Downloads Section */
+        .downloads {
+            padding: 80px 0;
+            background: var(--bg-alt);
+        }
+
+        .downloads h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+
+        .downloads .subtitle {
+            text-align: center;
+            color: var(--text-light);
+            margin-bottom: 48px;
+        }
+
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .download-card {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+
+        .download-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .download-card .platform-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .download-links {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .download-link {
+            display: block;
+            padding: 10px 16px;
+            background: var(--bg-alt);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+
+        .download-link:hover {
+            background: var(--border);
+            text-decoration: none;
+        }
+
+        .download-link code {
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 0.8rem;
+        }
+
+        /* About Section */
+        .about {
+            padding: 80px 0;
+        }
+
+        .about-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+        }
+
+        .about h2 {
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+
+        .about p {
+            color: var(--text-light);
+            margin-bottom: 16px;
+        }
+
+        .about ul {
+            list-style: none;
+            margin-top: 24px;
+        }
+
+        .about li {
+            padding: 8px 0;
+            padding-left: 28px;
+            position: relative;
+        }
+
+        .about li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        .about-image {
+            text-align: center;
+        }
+
+        .about-image img {
+            max-width: 100%;
+            border-radius: 12px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--text);
+            color: white;
+            padding: 48px 0;
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 24px;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 24px;
+        }
+
+        .footer-links a {
+            color: rgba(255,255,255,0.7);
+        }
+
+        .footer-links a:hover {
+            color: white;
+        }
+
+        .footer-credit {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.875rem;
+        }
+
+        .footer-credit a {
+            color: rgba(255,255,255,0.7);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .hero .tagline {
+                font-size: 1rem;
+            }
+
+            .about-content {
+                grid-template-columns: 1fr;
+            }
+
+            .about-image {
+                order: -1;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container hero-content">
+            <img src="icon-512.png" alt="i3X Explorer" class="logo">
+            <h1>i3X Explorer</h1>
+            <p class="tagline">A cross-platform desktop client for browsing and monitoring I3X API servers. Like MQTT Explorer, but for industrial manufacturing data.</p>
+
+            <div class="badges">
+                <span class="badge">
+                    <span>Cross-Platform</span>
+                </span>
+                <span class="badge">
+                    <span>Open Source</span>
+                </span>
+                <span class="badge">
+                    <span>MIT License</span>
+                </span>
+            </div>
+
+            <div class="cta-buttons">
+                <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="btn btn-primary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download
+                </a>
+                <a href="https://github.com/ace-technologies-inc/i3X-Explorer" class="btn btn-secondary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    View on GitHub
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Screenshots Section -->
+    <section class="screenshots">
+        <div class="container">
+            <h2>See it in Action</h2>
+            <div class="screenshot-gallery">
+                <div class="screenshot">
+                    <img src="screenshots/tree-browsing.png" alt="Tree Browsing">
+                    <div class="screenshot-caption">Browse namespaces, object types, and instances in a hierarchical tree view</div>
+                </div>
+                <div class="screenshot">
+                    <img src="screenshots/object-details.png" alt="Object Details">
+                    <div class="screenshot-caption">View detailed object metadata, values, and relationships</div>
+                </div>
+                <div class="screenshot">
+                    <img src="screenshots/subscriptions.png" alt="Real-time Subscriptions">
+                    <div class="screenshot-caption">Subscribe to objects and monitor real-time value updates with trend charts</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features">
+        <div class="container">
+            <h2>Features</h2>
+            <p class="subtitle">Everything you need to explore, monitor, and understand your I3X data infrastructure</p>
+
+            <div class="feature-grid">
+                <div class="feature">
+                    <div class="feature-icon">🌳</div>
+                    <h3>Hierarchical Browsing</h3>
+                    <p>Navigate namespaces, object types, and object instances in an intuitive tree structure</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📊</div>
+                    <h3>Real-time Values</h3>
+                    <p>View current values with quality indicators and timestamps in the standard VQT format</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔔</div>
+                    <h3>Subscriptions</h3>
+                    <p>Subscribe to objects for live updates via SSE streaming or polling</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📈</div>
+                    <h3>Trend Charts</h3>
+                    <p>Visualize numeric values over time with built-in trend charting</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔗</div>
+                    <h3>Relationship Graphs</h3>
+                    <p>Explore object relationships with interactive graph visualization</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Search & Filter</h3>
+                    <p>Quickly find objects by name with real-time filtering</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Downloads Section -->
+    <section class="downloads" id="downloads">
+        <div class="container">
+            <h2>Download</h2>
+            <p class="subtitle">Available for macOS, Windows, and Linux</p>
+
+            <div class="download-grid">
+                <div class="download-card">
+                    <div class="platform-icon">🍎</div>
+                    <h3>macOS</h3>
+                    <div class="download-links">
+                        <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="download-link">
+                            Apple Silicon (M1/M2/M3) <code>.dmg</code>
+                        </a>
+                        <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="download-link">
+                            Intel <code>.dmg</code>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="download-card">
+                    <div class="platform-icon">🪟</div>
+                    <h3>Windows</h3>
+                    <div class="download-links">
+                        <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="download-link">
+                            Installer<code>.exe</code>
+                        </a>
+                        <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="download-link">
+                            Portable <code>.exe</code>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="download-card">
+                    <div class="platform-icon">🐧</div>
+                    <h3>Linux</h3>
+                    <div class="download-links">
+                        <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="download-link">
+                            AppImage (x64) <code>.AppImage</code>
+                        </a>
+                        <a href="https://github.com/ace-technologies-inc/i3X-Explorer/releases" class="download-link">
+                            AppImage (ARM64) <code>.AppImage</code>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section class="about">
+        <div class="container">
+            <div class="about-content">
+                <div>
+                    <h2>What is I3X?</h2>
+                    <p>
+                        I3X (Industrial Information Interface eXchange) is a standardized API specification
+                        for accessing manufacturing and industrial data. It provides a unified interface
+                        regardless of the underlying platform—whether OPC UA, MQTT, historians, or cloud services.
+                    </p>
+                    <p>
+                        i3X Explorer makes it easy to connect to any I3X-compliant server and explore
+                        your industrial data without writing code.
+                    </p>
+                    <ul>
+                        <li>Unified API across different industrial platforms</li>
+                        <li>Hierarchical data model with namespaces and types</li>
+                        <li>Real-time subscriptions with quality indicators</li>
+                        <li>Historical data access</li>
+                        <li>Relationship-aware data navigation</li>
+                    </ul>
+                </div>
+                <div class="about-image">
+                    <img src="screenshots/main-window.png" alt="i3X Explorer main window">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/ace-technologies-inc/i3X-Explorer/">GitHub</a>
+                <a href="https://github.com/ace-technologies-inc/i3X-Explorer/issues">Issues</a>
+                <a href="https://www.i3x.dev">API Docs</a>
+                <a href="https://www.github.com/cesmii/i3X">Learn about i3X</a>
+            </div>
+            <div class="footer-credit">
+                Developed by <a href="https://www.acetechnologies.net/">ACE Technologies Inc</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
