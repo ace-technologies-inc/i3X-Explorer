@@ -1,0 +1,1 @@
+"use strict";const e=require("electron");e.contextBridge.exposeInMainWorld("electronAPI",{platform:process.platform,versions:{node:process.versions.node,chrome:process.versions.chrome,electron:process.versions.electron},fetch:async(r,o)=>e.ipcRenderer.invoke("fetch-proxy",r,o)});
