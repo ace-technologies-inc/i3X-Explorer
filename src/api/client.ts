@@ -81,47 +81,51 @@ export class I3XClient {
   async getRelatedObjects(
     elementId: string,
     relationshipType?: string,
-    includeMetadata = false,
-    maxDepth = 1
+    includeMetadata = false
   ): Promise<ObjectInstance[]> {
-    const response = await this.request<{
-      results: Array<{ elementId: string; success: boolean; data: ObjectInstance[] }>
-    }>('POST', '/objects/related', {
-      elementId,
-      relationshipType,
-      includeMetadata,
-      maxDepth
+    // Handle both wrapped {results:[...]} and direct array formats
+    const response = await this.request<
+      ObjectInstance[] | { results: Array<{ elementId: string; success: boolean; data: ObjectInstance[] }> }
+    >('POST', '/objects/related', {
+      elementIds: [elementId],
+      relationshiptype: relationshipType,
+      includeMetadata
     })
-    // Extract the data array from the first result
-    const result = response.results?.[0]
-    if (result?.success && Array.isArray(result.data)) {
-      return result.data
+    // Unwrap if needed
+    if (Array.isArray(response)) {
+      return response
     }
-    return []
+    const result = response.results?.[0]
+    return result?.success && Array.isArray(result.data) ? result.data : []
   }
 
   // Value Methods (RFC 4.2.1)
 
   async getValue(elementId: string, maxDepth = 1): Promise<LastKnownValue | null> {
-    const response = await this.request<{
-      results: Array<{ elementId: string; success: boolean; data: LastKnownValue }>
-    }>('POST', '/objects/value', {
-      elementId,
+    // Handle both wrapped {results:[...]} and direct array formats
+    const response = await this.request<
+      LastKnownValue[] | { results: Array<{ elementId: string; success: boolean; data: LastKnownValue }> }
+    >('POST', '/objects/value', {
+      elementIds: [elementId],
       maxDepth
     })
-    const result = response.results?.[0]
-    if (result?.success && result.data) {
-      return result.data
+    // Unwrap if needed
+    if (Array.isArray(response)) {
+      return response?.[0] ?? null
     }
-    return null
+    const result = response.results?.[0]
+    return result?.success && result.data ? result.data : null
   }
 
   async getValues(elementIds: string[], maxDepth = 1): Promise<LastKnownValue[]> {
-    const response = await this.request<{ results: Array<{ data: LastKnownValue }> }>(
-      'POST',
-      '/objects/value',
-      { elementIds, maxDepth }
-    )
+    // Handle both wrapped {results:[...]} and direct array formats
+    const response = await this.request<
+      LastKnownValue[] | { results: Array<{ data: LastKnownValue }> }
+    >('POST', '/objects/value', { elementIds, maxDepth })
+    // Unwrap if needed
+    if (Array.isArray(response)) {
+      return response
+    }
     return response.results.filter(r => r.data).map(r => r.data)
   }
 
@@ -131,12 +135,29 @@ export class I3XClient {
     endTime?: string,
     maxDepth = 1
   ): Promise<HistoricalValue> {
-    return this.request<HistoricalValue>('POST', '/objects/history', {
-      elementId,
+    // Handle both wrapped {results:[...]} and direct array formats
+    const response = await this.request<
+      HistoricalValue[] | { results: Array<{ elementId: string; success: boolean; data: HistoricalValue }> }
+    >('POST', '/objects/history', {
+      elementIds: [elementId],
       startTime,
       endTime,
       maxDepth
     })
+    // Unwrap if needed
+    const defaultValue: HistoricalValue = {
+      elementId,
+      value: [],
+      timestamp: new Date().toISOString(),
+      parentId: null,
+      isComposition: false,
+      namespaceUri: ''
+    }
+    if (Array.isArray(response)) {
+      return response?.[0] ?? defaultValue
+    }
+    const result = response.results?.[0]
+    return result?.success && result.data ? result.data : defaultValue
   }
 
   // Subscription Methods (RFC 4.2.3)

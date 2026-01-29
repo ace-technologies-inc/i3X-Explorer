@@ -4,14 +4,15 @@
 #
 # Usage: ./scripts/generate-icons.sh [source-image.png]
 #
-# If no source image provided, generates a simple placeholder icon.
-# For production, replace with a proper 1024x1024 PNG icon.
+# If no source image provided, uses build/icon-1024.png by default.
+# Falls back to generating a placeholder if icon-1024.png doesn't exist.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
+DEFAULT_ICON="$BUILD_DIR/icon-1024.png"
 SOURCE_IMAGE="${1:-}"
 
 mkdir -p "$BUILD_DIR"
@@ -30,21 +31,27 @@ else
     CONVERT="convert"
 fi
 
-# Generate placeholder if no source provided
+# Use default icon if no source provided
 if [ -z "$SOURCE_IMAGE" ]; then
-    echo "Generating placeholder icon..."
-    SOURCE_IMAGE="$BUILD_DIR/icon-source.png"
+    if [ -f "$DEFAULT_ICON" ]; then
+        echo "Using default icon: $DEFAULT_ICON"
+        SOURCE_IMAGE="$DEFAULT_ICON"
+    else
+        echo "No source image provided and $DEFAULT_ICON not found."
+        echo "Generating placeholder icon..."
+        SOURCE_IMAGE="$BUILD_DIR/icon-source.png"
 
-    # Create a simple blue gradient icon with "I3X" text
-    $CONVERT -size 1024x1024 \
-        -define gradient:angle=135 \
-        gradient:'#3b82f6-#1e40af' \
-        -gravity center \
-        -font Helvetica-Bold \
-        -pointsize 400 \
-        -fill white \
-        -annotate 0 "I3X" \
-        "$SOURCE_IMAGE"
+        # Create a simple blue gradient icon with "I3X" text
+        $CONVERT -size 1024x1024 \
+            -define gradient:angle=135 \
+            gradient:'#3b82f6-#1e40af' \
+            -gravity center \
+            -font Helvetica-Bold \
+            -pointsize 400 \
+            -fill white \
+            -annotate 0 "I3X" \
+            "$SOURCE_IMAGE"
+    fi
 fi
 
 echo "Source image: $SOURCE_IMAGE"
