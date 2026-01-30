@@ -36,8 +36,24 @@ export class SSESubscription {
 
     this.eventSource.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data) as SyncResponseItem[]
-        this.onData(data)
+        const rawData = JSON.parse(event.data) as Array<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>
+        // Convert new keyed format to SyncResponseItem[]
+        const items: SyncResponseItem[] = []
+        for (const entry of rawData) {
+          for (const [elementId, payload] of Object.entries(entry)) {
+            if (payload?.data?.[0]) {
+              items.push({
+                elementId,
+                value: payload.data[0].value,
+                quality: payload.data[0].quality ?? null,
+                timestamp: payload.data[0].timestamp ?? null
+              })
+            }
+          }
+        }
+        if (items.length > 0) {
+          this.onData(items)
+        }
       } catch (err) {
         console.error('Failed to parse SSE data:', err)
       }

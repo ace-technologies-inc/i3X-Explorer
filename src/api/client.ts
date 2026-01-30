@@ -83,50 +83,41 @@ export class I3XClient {
     relationshipType?: string,
     includeMetadata = false
   ): Promise<ObjectInstance[]> {
-    // Handle both wrapped {results:[...]} and direct array formats
-    const response = await this.request<
-      ObjectInstance[] | { results: Array<{ elementId: string; success: boolean; data: ObjectInstance[] }> }
-    >('POST', '/objects/related', {
+    // Returns direct array
+    return this.request<ObjectInstance[]>('POST', '/objects/related', {
       elementIds: [elementId],
       relationshiptype: relationshipType,
       includeMetadata
     })
-    // Unwrap if needed
-    if (Array.isArray(response)) {
-      return response
-    }
-    const result = response.results?.[0]
-    return result?.success && Array.isArray(result.data) ? result.data : []
   }
 
   // Value Methods (RFC 4.2.1)
 
   async getValue(elementId: string, maxDepth = 1): Promise<LastKnownValue | null> {
-    // Handle both wrapped {results:[...]} and direct array formats
-    const response = await this.request<
-      LastKnownValue[] | { results: Array<{ elementId: string; success: boolean; data: LastKnownValue }> }
-    >('POST', '/objects/value', {
-      elementIds: [elementId],
-      maxDepth
-    })
-    // Unwrap if needed
-    if (Array.isArray(response)) {
-      return response?.[0] ?? null
+    // Response format: {elementId: {data: [{value, quality, timestamp}]}}
+    const response = await this.request<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>(
+      'POST', '/objects/value', { elementIds: [elementId], maxDepth }
+    )
+    const entry = response[elementId]
+    if (entry?.data?.[0]) {
+      return { elementId, ...entry.data[0] } as LastKnownValue
     }
-    const result = response.results?.[0]
-    return result?.success && result.data ? result.data : null
+    return null
   }
 
   async getValues(elementIds: string[], maxDepth = 1): Promise<LastKnownValue[]> {
-    // Handle both wrapped {results:[...]} and direct array formats
-    const response = await this.request<
-      LastKnownValue[] | { results: Array<{ data: LastKnownValue }> }
-    >('POST', '/objects/value', { elementIds, maxDepth })
-    // Unwrap if needed
-    if (Array.isArray(response)) {
-      return response
+    // Response format: {elementId: {data: [{value, quality, timestamp}]}, ...}
+    const response = await this.request<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>(
+      'POST', '/objects/value', { elementIds, maxDepth }
+    )
+    const values: LastKnownValue[] = []
+    for (const id of elementIds) {
+      const entry = response[id]
+      if (entry?.data?.[0]) {
+        values.push({ elementId: id, ...entry.data[0] } as LastKnownValue)
+      }
     }
-    return response.results.filter(r => r.data).map(r => r.data)
+    return values
   }
 
   async getHistory(
@@ -135,16 +126,10 @@ export class I3XClient {
     endTime?: string,
     maxDepth = 1
   ): Promise<HistoricalValue> {
-    // Handle both wrapped {results:[...]} and direct array formats
-    const response = await this.request<
-      HistoricalValue[] | { results: Array<{ elementId: string; success: boolean; data: HistoricalValue }> }
-    >('POST', '/objects/history', {
-      elementIds: [elementId],
-      startTime,
-      endTime,
-      maxDepth
-    })
-    // Unwrap if needed
+    // Response format: {elementId: {data: [...]}}
+    const response = await this.request<Record<string, { data: Record<string, unknown>[] }>>(
+      'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
+    )
     const defaultValue: HistoricalValue = {
       elementId,
       value: [],
@@ -153,11 +138,11 @@ export class I3XClient {
       isComposition: false,
       namespaceUri: ''
     }
-    if (Array.isArray(response)) {
-      return response?.[0] ?? defaultValue
+    const entry = response[elementId]
+    if (entry?.data) {
+      return { ...defaultValue, value: entry.data }
     }
-    const result = response.results?.[0]
-    return result?.success && result.data ? result.data : defaultValue
+    return defaultValue
   }
 
   // Subscription Methods (RFC 4.2.3)
@@ -198,10 +183,25 @@ export class I3XClient {
   }
 
   async sync(subscriptionId: string): Promise<SyncResponseItem[]> {
-    return this.request<SyncResponseItem[]>(
+    // Response format: [{elementId: {data: [{value, quality, timestamp}]}}, ...]
+    const response = await this.request<Array<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>>(
       'POST',
       `/subscriptions/${subscriptionId}/sync`
     )
+    const items: SyncResponseItem[] = []
+    for (const entry of response) {
+      for (const [elementId, payload] of Object.entries(entry)) {
+        if (payload?.data?.[0]) {
+          items.push({
+            elementId,
+            value: payload.data[0].value,
+            quality: payload.data[0].quality ?? null,
+            timestamp: payload.data[0].timestamp ?? null
+          })
+        }
+      }
+    }
+    return items
   }
 
   getStreamUrl(subscriptionId: string): string {

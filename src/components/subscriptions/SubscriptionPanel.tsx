@@ -18,7 +18,7 @@ export function SubscriptionPanel() {
 
   const sseRef = useRef<SSESubscription | null>(null)
   const pollingRef = useRef<PollingSubscription | null>(null)
-  const [usePolling, setUsePolling] = useState(true) // Default to polling (more reliable)
+  const [usePolling, setUsePolling] = useState(false) // Default to SSE streaming
 
   // Cleanup on unmount
   useEffect(() => {

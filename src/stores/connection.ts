@@ -21,12 +21,12 @@ interface ConnectionState {
 export const useConnectionStore = create<ConnectionState>()(
   persist(
     (set, get) => ({
-      serverUrl: 'https://i3x.cesmii.net',
+      serverUrl: 'https://proveit-i3x.cesmii.net',
       isConnected: false,
       isConnecting: false,
       error: null,
       showConnectionDialog: false,
-      recentUrls: ['https://i3x.cesmii.net', 'http://localhost:8080'],
+      recentUrls: ['https://proveit-i3x.cesmii.net', 'http://localhost:8080'],
 
       setServerUrl: (url) => set({ serverUrl: url }),
       setConnected: (connected) => set({ isConnected: connected, isConnecting: false }),
