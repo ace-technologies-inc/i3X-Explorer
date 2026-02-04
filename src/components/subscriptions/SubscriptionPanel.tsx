@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
+import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
 import { SSESubscription, PollingSubscription } from '../../api/subscription'
 import { TrendView } from './TrendView'
@@ -13,8 +14,11 @@ export function SubscriptionPanel() {
     setActiveSubscription,
     removeSubscription,
     updateLiveValue,
-    setStreaming
+    setStreaming,
+    clearAll
   } = useSubscriptionsStore()
+
+  const isConnected = useConnectionStore((state) => state.isConnected)
 
   const sseRef = useRef<SSESubscription | null>(null)
   const pollingRef = useRef<PollingSubscription | null>(null)
@@ -27,6 +31,17 @@ export function SubscriptionPanel() {
       pollingRef.current?.stop()
     }
   }, [])
+
+  // Cleanup when disconnected from server
+  useEffect(() => {
+    if (!isConnected) {
+      sseRef.current?.disconnect()
+      sseRef.current = null
+      pollingRef.current?.stop()
+      pollingRef.current = null
+      clearAll()
+    }
+  }, [isConnected, clearAll])
 
   const handleDataUpdate = (items: SyncResponseItem[]) => {
     items.forEach((item) => {

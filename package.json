@@ -1,6 +1,6 @@
 {
   "name": "i3x-explorer",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Cross-platform desktop client for exploring I3X API servers",
   "main": "dist-electron/main.js",
   "type": "module",

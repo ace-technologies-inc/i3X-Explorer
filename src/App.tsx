@@ -2,6 +2,7 @@ import { useConnectionStore } from './stores/connection'
 import { Toolbar } from './components/layout/Toolbar'
 import { Sidebar } from './components/layout/Sidebar'
 import { MainPanel } from './components/layout/MainPanel'
+import { HistoryPanel } from './components/layout/HistoryPanel'
 import { BottomPanel } from './components/layout/BottomPanel'
 import { ConnectionDialog } from './components/connection/ConnectionDialog'
 
@@ -21,7 +22,10 @@ function App() {
           {/* Details panel */}
           <MainPanel />
 
-          {/* Bottom panel - Subscriptions (fixed, never scrolls) */}
+          {/* History panel */}
+          <HistoryPanel />
+
+          {/* Bottom panel - Subscriptions */}
           <BottomPanel />
         </div>
       </div>
