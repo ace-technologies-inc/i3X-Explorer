@@ -73,17 +73,17 @@ This starts a Vite dev server at http://localhost:5173/ where you can access the
 ### Build Commands
 
 ```bash
-# Build for current platform
+# Best way to build
+./scripts/build-all.sh [mac|win|linux|all]
+
+# Manually Build for current platform
 npm run build
 
-# Platform-specific builds
+# Manually Build Platform-specific
 npm run build:mac          # macOS (Intel + Apple Silicon)
 npm run build:win          # Windows (x64, x86, portable)
 npm run build:linux        # Linux (AppImage x64 + ARM64)
 npm run build:all          # All platforms
-
-# Or use the build script
-./scripts/build-all.sh [mac|win|linux|all]
 ```
 
 Build artifacts are output to `release/{version}/`.
