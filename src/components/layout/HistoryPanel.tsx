@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useExplorerStore } from '../../stores/explorer'
 import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
-import type { HistoricalValue } from '../../api/types'
+import type { HistoricalValue, ObjectInstance } from '../../api/types'
 
 interface HistoryDataPoint {
   timestamp: string
@@ -26,12 +26,10 @@ export function HistoryPanel() {
   const isConnected = useConnectionStore((state) => state.isConnected)
 
   const isObjectSelected = selectedItem?.type === 'object'
-  // TODO: Remove this workaround once server bug is fixed.
-  // The tree view prefixes hierarchical items with 'hier:' for unique IDs,
-  // but the server incorrectly parses 'hier' as a dataset name instead of
-  // recognizing it as a client-side prefix. See bug-report.md for details.
+  // Use the elementId from the data object directly (like ObjectDetail does),
+  // rather than the tree node ID which has prefixes like 'obj:' or 'hier:'
   const selectedElementId = isObjectSelected
-    ? (selectedItem.id.startsWith('hier:') ? selectedItem.id.slice(5) : selectedItem.id)
+    ? (selectedItem.data as ObjectInstance).elementId
     : null
 
   // Fetch history when object is selected
@@ -129,9 +127,12 @@ export function HistoryPanel() {
   }, [])
 
   // Determine if data is simple (numeric) or complex
+  // Find the first non-null value to determine type (data may have gaps)
   const dataType = useMemo(() => {
     if (historyData.length === 0) return 'empty'
-    const firstValue = historyData[0].value
+    const firstNonNullPoint = historyData.find(d => d.value !== null && d.value !== undefined)
+    if (!firstNonNullPoint) return 'empty'
+    const firstValue = firstNonNullPoint.value
     if (typeof firstValue === 'number') return 'numeric'
     if (typeof firstValue === 'boolean') return 'boolean'
     if (typeof firstValue === 'string') {
@@ -205,6 +206,13 @@ export function HistoryPanel() {
   )
 }
 
+// Helper to check if a value is a valid number for charting
+function isValidNumber(value: unknown): value is number {
+  if (value === null || value === undefined) return false
+  const num = typeof value === 'number' ? value : Number(value)
+  return !isNaN(num) && isFinite(num)
+}
+
 // Trend chart for numeric data
 function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
   const { path, yMin, yMax, yTicks, xLabels, plotWidth, chartWidth } = useMemo(() => {
@@ -212,10 +220,12 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
       return { path: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
     }
 
-    // Convert values to numbers
+    // Convert values to numbers, preserving null/NaN as null for gap handling
     const points = data.map(d => ({
       timestamp: new Date(d.timestamp).getTime(),
-      value: typeof d.value === 'number' ? d.value : Number(d.value)
+      value: isValidNumber(d.value)
+        ? (typeof d.value === 'number' ? d.value : Number(d.value))
+        : null
     }))
 
     // Calculate chart width based on data points (min 400, scale with data)
@@ -223,10 +233,14 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
     const plotWidth = chartWidth - PADDING.left - PADDING.right
     const plotHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom
 
-    // Calculate Y axis range
-    const values = points.map(p => p.value)
-    let minVal = Math.min(...values)
-    let maxVal = Math.max(...values)
+    // Calculate Y axis range (only from valid values)
+    const validValues = points.filter(p => p.value !== null).map(p => p.value as number)
+    if (validValues.length === 0) {
+      return { path: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
+    }
+
+    let minVal = Math.min(...validValues)
+    let maxVal = Math.max(...validValues)
 
     const range = maxVal - minVal || 1
     minVal = minVal - range * 0.1
@@ -244,12 +258,24 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
     const maxTime = points[points.length - 1].timestamp
     const timeRange = maxTime - minTime || 1
 
-    // Generate path
-    const pathPoints = points.map((point, i) => {
+    // Generate path with gaps for null values
+    // Use 'M' (move to) after a gap to start a new line segment
+    const pathParts: string[] = []
+    let inGap = true // Start as if we're in a gap so first point uses 'M'
+
+    for (const point of points) {
       const x = PADDING.left + ((point.timestamp - minTime) / timeRange) * plotWidth
-      const y = PADDING.top + plotHeight - ((point.value - minVal) / (maxVal - minVal)) * plotHeight
-      return `${i === 0 ? 'M' : 'L'} ${x} ${y}`
-    })
+
+      if (point.value === null) {
+        // Mark that we're in a gap - next valid point will start new segment
+        inGap = true
+      } else {
+        const y = PADDING.top + plotHeight - ((point.value - minVal) / (maxVal - minVal)) * plotHeight
+        // Use 'M' if starting after a gap, 'L' to continue line
+        pathParts.push(`${inGap ? 'M' : 'L'} ${x} ${y}`)
+        inGap = false
+      }
+    }
 
     // Generate X labels
     const xLabels = [
@@ -259,7 +285,7 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
     ]
 
     return {
-      path: pathPoints.join(' '),
+      path: pathParts.join(' '),
       yMin: minVal,
       yMax: maxVal,
       yTicks,
