@@ -2,6 +2,7 @@ import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { createClient, destroyClient, getClient } from '../../api/client'
+import iconPng from '/icon.png'
 
 export function Toolbar() {
   const {
@@ -78,7 +79,7 @@ export function Toolbar() {
       {/* macOS traffic light spacing */}
       <div className="w-16" />
 
-      <img src="/icon.png" alt="" className="w-5 h-5" />
+      <img src={iconPng} alt="" className="w-5 h-5" />
       <h1 className="text-sm font-semibold text-i3x-text">i3X Explorer</h1>
 
       <div className="flex-1 flex items-center gap-2">

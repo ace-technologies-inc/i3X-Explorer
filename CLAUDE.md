@@ -97,7 +97,7 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 
 ## Features
 
-- Connect to I3X servers (default: https://proveit-i3x.cesmii.net)
+- Connect to I3X servers (default: https://i3x.cesmii.net)
 - Browse hierarchical tree: Namespaces → ObjectTypes → Objects
 - Browse flat Objects list (lazy-loaded)
 - Expand compositional objects to see children

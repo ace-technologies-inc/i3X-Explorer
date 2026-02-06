@@ -83,14 +83,14 @@ interface ConnectionState {
 export const useConnectionStore = create<ConnectionState>()(
   persist(
     (set, get) => ({
-      serverUrl: 'https://proveit-i3x.cesmii.net',
+      serverUrl: 'https://i3x.cesmii.net',
       credentials: null,
       savedCredentials: {},
       isConnected: false,
       isConnecting: false,
       error: null,
       showConnectionDialog: false,
-      recentUrls: ['https://proveit-i3x.cesmii.net', 'http://localhost:8080'],
+      recentUrls: ['https://i3x.cesmii.net', 'http://localhost:8080'],
 
       setServerUrl: (url) => set({ serverUrl: url }),
       setCredentials: (credentials) => set({ credentials }),

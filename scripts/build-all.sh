@@ -24,26 +24,30 @@ if [ "$NODE_VERSION" -lt 18 ]; then
 fi
 
 TARGET="${1:-all}"
+VERSION=$(node -p "require('./package.json').version")
 
 echo "========================================"
-echo "Building i3X Explorer"
+echo "Building i3X Explorer v${VERSION}"
 echo "Target: $TARGET"
 echo "========================================"
 
+# Clean and build Vite once (avoid redundant rebuilds per platform)
+npm run clean
+npm run build:vite
+
+# Run electron-builder for selected target(s)
 case "$TARGET" in
     mac)
-        npm run build:mac
+        npx electron-builder --config electron-builder.json --mac
         ;;
     win)
-        npm run build:win
+        npx electron-builder --config electron-builder.json --win
         ;;
     linux)
-        npm run build:linux
+        npx electron-builder --config electron-builder.json --linux
         ;;
     all)
-        npm run build:mac
-        npm run build:linux
-        npm run build:win
+        npx electron-builder --config electron-builder.json --mac --win --linux
         ;;
     *)
         echo "Usage: $0 [mac|win|linux|all]"
@@ -54,6 +58,6 @@ esac
 echo ""
 echo "========================================"
 echo "Build complete! Artifacts in:"
-echo "  $PROJECT_DIR/release/"
+echo "  $PROJECT_DIR/release/${VERSION}/"
 echo "========================================"
-ls -lh "$PROJECT_DIR/release/0.1.0/"*.{dmg,exe,AppImage,tar.gz} 2>/dev/null || true
+ls -lh "$PROJECT_DIR/release/${VERSION}/" 2>/dev/null || true

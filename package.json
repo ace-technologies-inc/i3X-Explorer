@@ -1,6 +1,6 @@
 {
   "name": "i3x-explorer",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Cross-platform desktop client for exploring I3X API servers",
   "main": "dist-electron/main.js",
   "type": "module",
@@ -8,8 +8,8 @@
     "node": ">=18.0.0"
   },
   "author": {
-    "name": "CESMII",
-    "email": "info@cesmii.org"
+    "name": "ACE Technologies",
+    "email": "info@acetechnologies.net"
   },
   "license": "MIT",
   "homepage": "https://github.com/cesmii/I3X-Explorer",
@@ -20,15 +20,15 @@
   "scripts": {
     "dev": "vite",
     "clean": "rm -rf dist dist-electron",
-    "build": "npm run clean && vite build && electron-builder --config electron-builder.json",
-    "build:vite": "vite build",
-    "build:mac": "npm run clean && vite build && electron-builder --config electron-builder.json --mac",
-    "build:mac:arm64": "npm run clean && vite build && electron-builder --config electron-builder.json --mac --arm64",
-    "build:mac:x64": "npm run clean && vite build && electron-builder --config electron-builder.json --mac --x64",
-    "build:mac:universal": "npm run clean && vite build && electron-builder --config electron-builder.json --mac --universal",
-    "build:win": "npm run clean && vite build && electron-builder --config electron-builder.json --win",
-    "build:linux": "npm run clean && vite build && electron-builder --config electron-builder.json --linux",
-    "build:all": "npm run clean && vite build && electron-builder --config electron-builder.json --mac --win --linux",
+    "build": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json",
+    "build:vite": "vite build && cp electron/preload.cjs dist-electron/preload.cjs",
+    "build:mac": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac",
+    "build:mac:arm64": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --arm64",
+    "build:mac:x64": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --x64",
+    "build:mac:universal": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --universal",
+    "build:win": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --win",
+    "build:linux": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --linux",
+    "build:all": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --win --linux",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit"
