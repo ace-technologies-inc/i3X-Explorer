@@ -119,8 +119,8 @@ npm run build
 
 ## Related Resources
 
-- [I3X API Documentation](https://api.i3x.dev/v0/docs)
-- [I3X RFC Specification](https://github.com/cesmii/API/blob/main/RFC%20for%20Contextualized%20Manufacturing%20Information%20API.md)
+- [I3X Information](https://i3x.dev)
+- [I3X API Documentation](https://i3x.dev/sdk)
 - [CESMII - The Smart Manufacturing Institute](https://www.cesmii.org/)
 
 ## License
