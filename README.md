@@ -101,7 +101,7 @@ npm run build
 ## Usage
 
 1. Launch i3X Explorer
-2. Enter the server URL (default: `https://i3x.cesmii.net`)
+2. Enter the server URL (default: `https://api.i3x.dev/v0`)
 3. Click **Connect**
 4. Browse the tree to explore namespaces, object types, and objects
 5. Click any object to view its details and current value
@@ -119,7 +119,7 @@ npm run build
 
 ## Related Resources
 
-- [I3X API Documentation](https://i3x.cesmii.net/docs)
+- [I3X API Documentation](https://api.i3x.dev/v0/docs)
 - [I3X RFC Specification](https://github.com/cesmii/API/blob/main/RFC%20for%20Contextualized%20Manufacturing%20Information%20API.md)
 - [CESMII - The Smart Manufacturing Institute](https://www.cesmii.org/)
 
