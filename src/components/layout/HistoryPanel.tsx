@@ -62,14 +62,17 @@ export function HistoryPanel() {
         if (Array.isArray(result.value)) {
           for (const item of result.value) {
             if (item && typeof item === 'object' && 'timestamp' in item) {
-              // Skip points with null/undefined values - they're not meaningful history
-              const itemValue = (item as Record<string, unknown>).value
-              if (itemValue === null || itemValue === undefined) {
-                continue
-              }
+              // Null/undefined values must be preserved for trend charts.
+              // The HistoryTrendChart renders nulls as visual gaps in the SVG path
+              // using M (move-to) commands. Filtering them out here would hide
+              // periods where the server returned no data.
+              // const itemValue = (item as Record<string, unknown>).value
+              // if (itemValue === null || itemValue === undefined) {
+              //   continue
+              // }
               points.push({
                 timestamp: item.timestamp as string,
-                value: itemValue,
+                value: (item as Record<string, unknown>).value,
                 quality: item.quality as string | undefined
               })
             }
