@@ -1,7 +1,11 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useExplorerStore, type SelectedItem } from '../../stores/explorer'
+import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
 import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
+
+const POLL_INTERVAL_MS = 30_000
+const BACKGROUND_POLL_ENABLED = true
 
 // Icons
 const FolderIcon = () => <span className="text-i3x-warning">📁</span>
@@ -27,7 +31,7 @@ interface TreeNodeProps {
 }
 
 function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeNodeProps) {
-  const { expandedNodes, selectedItem, allObjects, childObjects, toggleNode, selectItem, setObjects, setAllObjects, setChildObjects } = useExplorerStore()
+  const { expandedNodes, selectedItem, toggleNode, selectItem, setObjects, setAllObjects, setChildObjects } = useExplorerStore()
 
   const isExpanded = expandedNodes.has(id)
   const isSelected = selectedItem?.id === id
@@ -42,7 +46,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
     if (hasChildren) {
       toggleNode(id)
 
-      // Load objects for this type if expanding an objectType
+      // Re-fetch objects for this type whenever expanding (always fresh)
       if (type === 'objectType' && !isExpanded) {
         const client = getClient()
         if (client) {
@@ -56,8 +60,8 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         }
       }
 
-      // Load all objects if expanding the Objects or Hierarchical folder (lazy-load)
-      if ((id === OBJECTS_FOLDER_ID || id === HIERARCHICAL_FOLDER_ID) && !isExpanded && allObjects.length === 0) {
+      // Re-fetch all objects whenever expanding Objects or Hierarchy folder (always fresh)
+      if ((id === OBJECTS_FOLDER_ID || id === HIERARCHICAL_FOLDER_ID) && !isExpanded) {
         const client = getClient()
         if (client) {
           try {
@@ -69,16 +73,27 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         }
       }
 
-      // Load child objects if expanding an object with children
-      if (type === 'object' && !isExpanded) {
+      // Re-fetch all objects when expanding a hierarchy node (picks up newly discovered objects)
+      if (id.startsWith('hier:') && !isExpanded) {
+        const client = getClient()
+        if (client) {
+          try {
+            const objects = await client.getObjects()
+            setAllObjects(objects)
+          } catch (err) {
+            console.error('Failed to refresh objects for hierarchy node:', err)
+          }
+        }
+      }
+
+      // Re-fetch child objects whenever expanding a compositional object (always fresh)
+      if (type === 'object' && !isExpanded && !id.startsWith('hier:')) {
         const obj = data as ObjectInstance
-        if (obj.isComposition && !childObjects.has(obj.elementId)) {
+        if (obj.isComposition) {
           const client = getClient()
           if (client) {
             try {
-              // Only get HasComponent relationships, then filter to isComposition children
               const related = await client.getRelatedObjects(obj.elementId, 'HasComponent')
-              // Filter: isComposition, not self, and parentId matches this object
               const compositionalChildren = related.filter(child =>
                 child.isComposition &&
                 child.elementId !== obj.elementId &&
@@ -92,7 +107,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         }
       }
     }
-  }, [data, type, id, hasChildren, isExpanded, allObjects.length, childObjects, selectItem, toggleNode, setObjects, setAllObjects, setChildObjects])
+  }, [data, type, id, hasChildren, isExpanded, selectItem, toggleNode, setObjects, setAllObjects, setChildObjects])
 
   const getIcon = () => {
     switch (type) {
@@ -262,6 +277,78 @@ function HierarchicalObjectNode({
 
 export function TreeView() {
   const { namespaces, objectTypes, objects, allObjects, searchQuery } = useExplorerStore()
+  const isConnected = useConnectionStore(state => state.isConnected)
+
+  // Background poll: re-fetch all currently-expanded tree data every 30s
+  useEffect(() => {
+    if (!isConnected || !BACKGROUND_POLL_ENABLED) return
+
+    const refreshTree = async () => {
+      const client = getClient()
+      if (!client) return
+
+      const { expandedNodes, setNamespaces, setObjectTypes, setObjects, setAllObjects, setChildObjects } = useExplorerStore.getState()
+
+      // Refresh top-level namespace/type data
+      try {
+        const [namespaces, objectTypes] = await Promise.all([
+          client.getNamespaces(),
+          client.getObjectTypes()
+        ])
+        setNamespaces(namespaces)
+        setObjectTypes(objectTypes)
+      } catch (err) {
+        console.error('Background refresh: namespaces/types failed', err)
+      }
+
+      // Refresh each expanded branch
+      let allObjectsRefreshed = false
+      const refreshedChildIds = new Set<string>()
+
+      for (const nodeId of expandedNodes) {
+        if (nodeId.startsWith('type:')) {
+          const typeElementId = nodeId.slice(5)
+          try {
+            const objects = await client.getObjects(typeElementId)
+            setObjects(typeElementId, objects)
+          } catch (err) {
+            console.error('Background refresh: type failed', typeElementId, err)
+          }
+        }
+
+        if ((nodeId === OBJECTS_FOLDER_ID || nodeId === HIERARCHICAL_FOLDER_ID) && !allObjectsRefreshed) {
+          allObjectsRefreshed = true
+          try {
+            const objects = await client.getObjects()
+            setAllObjects(objects)
+          } catch (err) {
+            console.error('Background refresh: all objects failed', err)
+          }
+        }
+
+        if (nodeId.startsWith('obj:') || nodeId.startsWith('hier:')) {
+          const elementId = nodeId.startsWith('obj:') ? nodeId.slice(4) : nodeId.slice(5)
+          if (!refreshedChildIds.has(elementId)) {
+            refreshedChildIds.add(elementId)
+            try {
+              const related = await client.getRelatedObjects(elementId, 'HasComponent')
+              const compositionalChildren = related.filter(child =>
+                child.isComposition &&
+                child.elementId !== elementId &&
+                child.parentId === elementId
+              )
+              setChildObjects(elementId, compositionalChildren)
+            } catch (err) {
+              console.error('Background refresh: children failed', elementId, err)
+            }
+          }
+        }
+      }
+    }
+
+    const intervalId = setInterval(refreshTree, POLL_INTERVAL_MS)
+    return () => clearInterval(intervalId)
+  }, [isConnected])
 
   // Filter based on search
   const filterText = searchQuery.toLowerCase()
