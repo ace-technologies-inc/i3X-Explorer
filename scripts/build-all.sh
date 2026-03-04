@@ -72,16 +72,16 @@ npm run build:vite
 # Run electron-builder for selected target(s)
 case "$TARGET" in
     mac)
-        npx electron-builder --config electron-builder.json --mac
+        npx electron-builder --config electron-builder.json --mac --publish never
         ;;
     win)
-        npx electron-builder --config electron-builder.json --win
+        npx electron-builder --config electron-builder.json --win --publish never
         ;;
     linux)
-        npx electron-builder --config electron-builder.json --linux
+        npx electron-builder --config electron-builder.json --linux --publish never
         ;;
     all)
-        npx electron-builder --config electron-builder.json --mac --win --linux
+        npx electron-builder --config electron-builder.json --mac --win --linux --publish never
         ;;
     *)
         echo "Usage: $0 [mac|win|linux|all]"

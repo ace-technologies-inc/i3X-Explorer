@@ -89,6 +89,7 @@
       }
     ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "icon": "build/icons",
     "category": "Development",
     "maintainer": "CESMII <info@cesmii.org>",
     "vendor": "CESMII",

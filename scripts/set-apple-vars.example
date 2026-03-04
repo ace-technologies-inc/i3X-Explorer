@@ -1,0 +1,6 @@
+# to enable notarization on macOS:
+# copy this file to set-apple-vars.sh and change the values below
+
+export APPLE_ID="you@example.com"
+export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+export APPLE_TEAM_ID="XXXXXXXXXX"

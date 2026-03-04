@@ -63,6 +63,15 @@ for size in 16 24 32 48 64 128 256 512 1024; do
 done
 cp "$BUILD_DIR/icon-256.png" "$BUILD_DIR/icon.png"
 
+# Create icons directory with size-based naming for electron-builder Linux
+# electron-builder expects icons named like "256x256.png" in an icons directory
+ICONS_DIR="$BUILD_DIR/icons"
+mkdir -p "$ICONS_DIR"
+for size in 16 24 32 48 64 128 256 512; do
+    cp "$BUILD_DIR/icon-${size}.png" "$ICONS_DIR/${size}x${size}.png"
+done
+echo "Created $ICONS_DIR with size-based icon names for Linux"
+
 # Generate ICO icon (for Windows)
 echo "Generating ICO icon for Windows..."
 $CONVERT "$SOURCE_IMAGE" \

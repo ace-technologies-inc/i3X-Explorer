@@ -35,6 +35,14 @@ chmod +x "i3X Explorer-x.x.x-linux-x86_64.AppImage"
 ./"i3X Explorer-x.x.x-linux-x86_64.AppImage"
 ```
 
+**Ubuntu 22.04+ / Debian:** AppImages require FUSE 2, which is not installed by default on newer distributions. If the AppImage fails to launch, install the required library:
+
+```bash
+sudo apt install libfuse2
+```
+
+Optionally, consider using [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) to integrate into your Launcher.
+
 ## Development
 
 ### Prerequisites
@@ -73,6 +81,8 @@ npx vite
 This starts a Vite dev server at http://localhost:5173/ where you can access the full UI in your browser.
 
 ### Build Commands
+
+Note: The best environment to build for all platforms is a modern macOS.
 
 ```bash
 # Best way to build
