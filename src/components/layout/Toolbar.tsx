@@ -1,10 +1,27 @@
+import { useState, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { createClient, destroyClient, getClient } from '../../api/client'
 import iconPng from '/icon.png'
 
+type Theme = 'light' | 'dark'
+
+function getInitialTheme(): Theme {
+  const saved = localStorage.getItem('i3x-theme')
+  if (saved === 'light' || saved === 'dark') return saved
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 export function Toolbar() {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('i3x-theme', theme)
+  }, [theme])
+
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
   const {
     serverUrl,
     credentials,
@@ -113,6 +130,15 @@ export function Toolbar() {
           Developer
         </button>
       </div>
+
+      {/* Theme toggle */}
+      <button
+        onClick={toggleTheme}
+        title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base no-drag"
+      >
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
 
       {/* Connection status */}
       <div className="flex items-center gap-2">
