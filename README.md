@@ -112,6 +112,15 @@ To produce notarized macOS builds (required for arm64 downloads to open without 
 
 If `set-apple-vars.sh` is absent or the env vars are unset, the build completes unsigned with a warning.
 
+### Windows SmartScreen Warning
+
+When downloading the Windows installer, SmartScreen may show a warning that the app is unrecognized. This is expected for unsigned builds. To proceed:
+
+1. Click **More info** in the SmartScreen dialog
+2. Click **Run anyway**
+
+This warning appears because the installer is not yet signed with a Windows code signing certificate. It does not indicate the app is harmful.
+
 ### Updating the Icon
 
 ```bash
