@@ -1,16 +1,16 @@
 import { useMemo } from 'react'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 
-// Colors
+// Colors — reference CSS variables so they respond to the active theme
 const COLORS = {
-  bg: '#1e1e1e',
-  surface: '#252526',
-  border: '#3c3c3c',
-  text: '#cccccc',
-  textMuted: '#808080',
-  primary: '#3b82f6',
-  success: '#22c55e',
-  grid: '#333333'
+  bg:        'rgb(var(--i3x-bg))',
+  surface:   'rgb(var(--i3x-surface))',
+  border:    'rgb(var(--i3x-border))',
+  text:      'rgb(var(--i3x-text))',
+  textMuted: 'rgb(var(--i3x-text-muted))',
+  primary:   'rgb(var(--i3x-primary))',
+  success:   'rgb(var(--i3x-success))',
+  grid:      'rgb(var(--i3x-border))',
 }
 
 // Chart dimensions

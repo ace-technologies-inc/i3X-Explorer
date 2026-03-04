@@ -330,7 +330,7 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
                 y1={y}
                 x2={PADDING.left + plotWidth}
                 y2={y}
-                stroke="#333333"
+                stroke="rgb(var(--i3x-border))"
                 strokeWidth="1"
                 strokeDasharray="2,2"
               />
@@ -338,7 +338,7 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
                 x={PADDING.left - 5}
                 y={y + 3}
                 textAnchor="end"
-                fill="#808080"
+                fill="rgb(var(--i3x-text-muted))"
                 fontSize="9"
               >
                 {formatValue(tick)}
@@ -354,7 +354,7 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
             x={label.x}
             y={CHART_HEIGHT - 5}
             textAnchor={i === 0 ? 'start' : i === xLabels.length - 1 ? 'end' : 'middle'}
-            fill="#808080"
+            fill="rgb(var(--i3x-text-muted))"
             fontSize="9"
           >
             {label.label}
@@ -365,7 +365,7 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
         <path
           d={path}
           fill="none"
-          stroke="#3b82f6"
+          stroke="rgb(var(--i3x-primary))"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"

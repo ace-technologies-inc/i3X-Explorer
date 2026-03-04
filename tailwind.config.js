@@ -8,16 +8,16 @@ export default {
     extend: {
       colors: {
         'i3x': {
-          'primary': '#3b82f6',
-          'secondary': '#64748b',
-          'success': '#22c55e',
-          'warning': '#f59e0b',
-          'error': '#ef4444',
-          'bg': '#1e1e1e',
-          'surface': '#252526',
-          'border': '#3c3c3c',
-          'text': '#cccccc',
-          'text-muted': '#808080'
+          'primary':    'rgb(var(--i3x-primary)    / <alpha-value>)',
+          'secondary':  'rgb(var(--i3x-secondary)  / <alpha-value>)',
+          'success':    'rgb(var(--i3x-success)    / <alpha-value>)',
+          'warning':    'rgb(var(--i3x-warning)    / <alpha-value>)',
+          'error':      'rgb(var(--i3x-error)      / <alpha-value>)',
+          'bg':         'rgb(var(--i3x-bg)         / <alpha-value>)',
+          'surface':    'rgb(var(--i3x-surface)    / <alpha-value>)',
+          'border':     'rgb(var(--i3x-border)     / <alpha-value>)',
+          'text':       'rgb(var(--i3x-text)       / <alpha-value>)',
+          'text-muted': 'rgb(var(--i3x-text-muted) / <alpha-value>)',
         }
       }
     },

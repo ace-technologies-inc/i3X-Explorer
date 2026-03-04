@@ -22,18 +22,18 @@ const CENTER_X = 300
 const CENTER_Y = 200
 const RADIUS = 150
 
-// Colors (matching tailwind.config.js)
+// Colors — reference CSS variables so they respond to the active theme
 const COLORS = {
-  primary: '#3b82f6',
-  secondary: '#64748b',
-  success: '#22c55e',
-  warning: '#f59e0b',
-  error: '#ef4444',
-  bg: '#1e1e1e',
-  surface: '#252526',
-  border: '#3c3c3c',
-  text: '#cccccc',
-  textMuted: '#808080'
+  primary:   'rgb(var(--i3x-primary))',
+  secondary: 'rgb(var(--i3x-secondary))',
+  success:   'rgb(var(--i3x-success))',
+  warning:   'rgb(var(--i3x-warning))',
+  error:     'rgb(var(--i3x-error))',
+  bg:        'rgb(var(--i3x-bg))',
+  surface:   'rgb(var(--i3x-surface))',
+  border:    'rgb(var(--i3x-border))',
+  text:      'rgb(var(--i3x-text))',
+  textMuted: 'rgb(var(--i3x-text-muted))',
 }
 
 export function RelationshipGraph({ object }: RelationshipGraphProps) {

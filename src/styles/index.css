@@ -2,7 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Base styles */
+/* ── Theme tokens ─────────────────────────────────────────────────────────── */
+/* Values are space-separated RGB channels so Tailwind opacity modifiers work  */
+/* e.g. bg-i3x-primary/20 → rgb(var(--i3x-primary) / 0.2)                    */
+
+:root {
+  /* Accent colors — same in both themes */
+  --i3x-primary:    59 130 246;   /* #3b82f6 */
+  --i3x-secondary:  100 116 139;  /* #64748b */
+  --i3x-success:    34 197 94;    /* #22c55e */
+  --i3x-warning:    245 158 11;   /* #f59e0b */
+  --i3x-error:      239 68 68;    /* #ef4444 */
+
+  /* Light theme surfaces (default) */
+  --i3x-bg:              245 245 245;  /* #f5f5f5 */
+  --i3x-surface:         255 255 255;  /* #ffffff */
+  --i3x-border:          220 220 220;  /* #dcdcdc */
+  --i3x-text:            51 51 51;     /* #333333 */
+  --i3x-text-muted:      107 114 128;  /* #6b7280 */
+  --i3x-scrollbar:       200 200 200;
+  --i3x-scrollbar-hover: 160 160 160;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --i3x-bg:              30 30 30;    /* #1e1e1e */
+    --i3x-surface:         37 37 38;    /* #252526 */
+    --i3x-border:          60 60 60;    /* #3c3c3c */
+    --i3x-text:            204 204 204; /* #cccccc */
+    --i3x-text-muted:      128 128 128; /* #808080 */
+    --i3x-scrollbar:       74 74 74;
+    --i3x-scrollbar-hover: 90 90 90;
+  }
+}
+
+/* ── Base styles ──────────────────────────────────────────────────────────── */
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -37,13 +72,15 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4a4a4a;
+  background: rgb(var(--i3x-scrollbar));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a;
+  background: rgb(var(--i3x-scrollbar-hover));
 }
+
+/* ── Component styles ─────────────────────────────────────────────────────── */
 
 /* Tree node styles */
 .tree-node {
@@ -60,7 +97,7 @@ html, body, #root {
 
 /* Value flash animation */
 @keyframes value-flash {
-  0% { background-color: rgba(34, 197, 94, 0.3); }
+  0%   { background-color: rgb(var(--i3x-success) / 0.3); }
   100% { background-color: transparent; }
 }
 

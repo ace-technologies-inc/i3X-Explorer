@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, safeStorage } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, safeStorage, nativeTheme } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -52,7 +52,7 @@ function createWindow() {
     },
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
-    backgroundColor: '#1e1e1e',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f5',
     show: false
   })
 
