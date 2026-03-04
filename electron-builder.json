@@ -34,6 +34,7 @@
     "entitlementsInherit": "build/entitlements.mac.plist"
   },
   "dmg": {
+    "writeUpdateInfo": false,
     "contents": [
       {
         "x": 130,
@@ -72,7 +73,8 @@
     "deleteAppDataOnUninstall": false,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "i3X Explorer"
+    "shortcutName": "i3X Explorer",
+    "differentialPackage": false
   },
   "portable": {
     "artifactName": "${productName}-${version}-portable.${ext}"
@@ -99,5 +101,6 @@
   "appImage": {
     "license": "LICENSE"
   },
+  "generateUpdatesFilesForAllChannels": false,
   "publish": null
 }
