@@ -31,6 +31,40 @@ echo "Building i3X Explorer v${VERSION}"
 echo "Target: $TARGET"
 echo "========================================"
 
+# Load Apple credentials if the local file exists (not committed to git)
+if [ -f "$SCRIPT_DIR/set-apple-vars.sh" ]; then
+    source "$SCRIPT_DIR/set-apple-vars.sh"
+fi
+
+# Check macOS signing/notarization readiness (informational only — steps fail gracefully)
+if [ "$TARGET" = "mac" ] || [ "$TARGET" = "all" ]; then
+    HAS_CERT=false
+    HAS_NOTARIZE=false
+
+    if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+        HAS_CERT=true
+    fi
+
+    if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+        HAS_NOTARIZE=true
+    fi
+
+    echo ""
+    if [ "$HAS_CERT" = true ] && [ "$HAS_NOTARIZE" = true ]; then
+        echo "✓ macOS: code signing + notarization enabled"
+    elif [ "$HAS_CERT" = true ]; then
+        echo "⚠  macOS: code signing enabled, notarization skipped"
+        echo "   Set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID to notarize"
+    else
+        echo "⚠  macOS: unsigned build — arm64 users will see 'app is damaged' when downloaded"
+        echo "   Requires a 'Developer ID Application' certificate in your keychain"
+        echo "   and APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID env vars"
+        # Suppress electron-builder's signing auto-discovery to avoid spurious errors
+        export CSC_IDENTITY_AUTO_DISCOVERY=false
+    fi
+    echo ""
+fi
+
 # Clean and build Vite once (avoid redundant rebuilds per platform)
 npm run clean
 npm run build:vite

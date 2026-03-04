@@ -90,6 +90,28 @@ npm run build:all          # All platforms
 
 Build artifacts are output to `release/{version}/`.
 
+### macOS Notarization
+
+To produce notarized macOS builds (required for arm64 downloads to open without a "app is damaged" error), you need an [Apple Developer account](https://developer.apple.com/) and a **Developer ID Application** certificate in your keychain.
+
+1. **Create the certificate** — Xcode → Settings → Accounts → your Apple account → Manage Certificates → `+` → **Developer ID Application**
+
+2. **Create an app-specific password** at [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
+
+3. **Find your Team ID** at [developer.apple.com/account](https://developer.apple.com/account) (top-right, 10 characters)
+
+4. **Create `scripts/set-apple-vars.sh`** (this file is git-ignored):
+
+   ```bash
+   export APPLE_ID="you@example.com"
+   export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+   export APPLE_TEAM_ID="XXXXXXXXXX"
+   ```
+
+5. **Build** — `./scripts/build-all.sh mac` will source the file automatically and notarize both Intel and Apple Silicon DMGs.
+
+If `set-apple-vars.sh` is absent or the env vars are unset, the build completes unsigned with a warning.
+
 ### Updating the Icon
 
 ```bash

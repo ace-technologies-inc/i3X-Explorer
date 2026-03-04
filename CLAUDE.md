@@ -79,6 +79,20 @@ npm run build:win          # Windows (x64 + x86 + portable)
 npm run build:linux        # Linux (AppImage + tar.gz)
 ```
 
+### macOS Notarization
+
+For notarized macOS builds (required to avoid "app is damaged" on Apple Silicon downloads), create `scripts/set-apple-vars.sh` (git-ignored) with:
+
+```bash
+export APPLE_ID="you@example.com"
+export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"  # from appleid.apple.com
+export APPLE_TEAM_ID="XXXXXXXXXX"                          # from developer.apple.com/account
+```
+
+Also requires a **Developer ID Application** certificate (not "Mac Installer Distribution") in the keychain — create via Xcode → Settings → Accounts → Manage Certificates.
+
+`build-all.sh` sources this file automatically. If absent or vars unset, the build completes unsigned with a warning. Notarization logic lives in `scripts/notarize.cjs` (afterSign hook).
+
 **Output:** `release/{version}/`
 
 | Platform | Artifacts |

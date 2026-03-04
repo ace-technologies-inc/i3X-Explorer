@@ -12,7 +12,9 @@
     "dist/**/*",
     "dist-electron/**/*"
   ],
+  "afterSign": "scripts/notarize.cjs",
   "mac": {
+    "notarize": false,
     "target": [
       {
         "target": "dmg",
