@@ -12,7 +12,7 @@ i3X Explorer is a cross-platform desktop application for browsing and monitoring
 i3x-explorer/
 ├── electron/                # Electron main process
 │   ├── main.ts             # App entry, window management
-│   └── preload.ts          # Context bridge for IPC
+│   └── preload.cjs         # Context bridge for IPC (CommonJS, loaded by Electron)
 ├── src/                    # React renderer
 │   ├── main.tsx            # React entry
 │   ├── App.tsx             # Root component
@@ -101,11 +101,13 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - Browse hierarchical tree: Namespaces → ObjectTypes → Objects
 - Browse flat Objects list (lazy-loaded)
 - Expand compositional objects to see children
+- Tree auto-refresh: expanding a branch always re-fetches from the server; 30s background poll refreshes all expanded branches
 - View object details, metadata, and current values
 - Relationship graph visualization for non-compositional relationships
 - Subscribe to objects for real-time updates (polling or SSE)
 - Trend chart for numeric subscription values
 - Search/filter tree nodes
+- Light/dark theme toggle (persists across restarts; falls back to OS preference)
 
 ## Key Resources
 
@@ -303,7 +305,9 @@ SSE format requirements:
 3. `Content-Type: text/event-stream` header
 
 ### CORS Configuration
-Configure CORS in **either** the reverse proxy (nginx) **or** the application (FastAPI), **not both**. Duplicate headers cause browsers to reject responses.
+The Electron app sets `webSecurity: false` in `BrowserWindow`, which disables CORS enforcement in the renderer entirely. This is appropriate for a trusted desktop app and avoids preflight failures against servers with incomplete CORS headers. All HTTP requests are made directly from the renderer process (visible in DevTools Network tab).
+
+For server-side reference only — if building a web-based client, configure CORS in **either** the reverse proxy (nginx) **or** the application (FastAPI), **not both**. Duplicate headers cause browsers to reject responses.
 
 **FastAPI (recommended):**
 ```python
@@ -339,6 +343,18 @@ location / {
     proxy_pass http://localhost:8080;
 }
 ```
+
+### Tree Refresh
+- Expanding any branch always re-fetches from the server (no stale cache)
+- Hierarchy nodes (`hier:` prefix) re-fetch `allObjects` on expand — important for MQTT adapters that discover objects dynamically as topics arrive
+- A 30-second background poll refreshes all currently-expanded branches while connected (controlled by `BACKGROUND_POLL_ENABLED` in `TreeView.tsx`)
+
+### Theme System
+- Colors are defined as CSS custom properties (space-separated RGB channels) in `src/styles/index.css`
+- Light theme is the default (`:root`); dark theme activates via `@media (prefers-color-scheme: dark)` or `[data-theme="dark"]` on `<html>`
+- The toolbar sun/moon button sets `document.documentElement.dataset.theme` and persists the choice to `localStorage`
+- Tailwind tokens use `rgb(var(--i3x-...) / <alpha-value>)` format so opacity modifiers (`/20`, `/50`) continue to work
+- SVG chart components (TrendView, HistoryPanel, RelationshipGraph) use `rgb(var(--i3x-...))` strings in their `COLORS` objects
 
 ### Trend View
 - Stores up to 60 data points per elementId

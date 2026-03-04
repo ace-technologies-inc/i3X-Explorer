@@ -8,9 +8,11 @@ A cross-platform desktop application for browsing and monitoring I3X (Industrial
 
 - Connect to any I3X-compliant server
 - Browse hierarchical data: Namespaces → Object Types → Objects
+- Tree auto-refresh: expanding a branch re-fetches from the server; 30s background poll keeps data current
 - View object details, metadata, and current values
 - Subscribe to objects for real-time updates via SSE
 - Search and filter the object tree
+- Light and dark theme with toggle button (follows OS preference by default)
 
 ## Installation
 
