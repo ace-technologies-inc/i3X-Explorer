@@ -4,13 +4,6 @@ import type { ClientCredentials } from './client'
 export type SubscriptionCallback = (items: SyncResponseItem[]) => void
 export type ErrorCallback = (error: Error) => void
 
-// Check if we're running in Electron with IPC available
-function isElectron(): boolean {
-  return typeof window !== 'undefined' &&
-         !!window.electronAPI &&
-         typeof window.electronAPI.sseConnect === 'function'
-}
-
 // #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
 // Extracts value/quality/timestamp from either standard format or nested Data.Value format
 // Standard: { value: X, quality: Y, timestamp: Z }
@@ -38,8 +31,6 @@ function extractVQT(payload: Record<string, unknown>): { value: unknown; quality
 
 export class SSESubscription {
   private abortController: AbortController | null = null
-  private streamId: string | null = null
-  private cleanupFns: Array<() => void> = []
   private url: string
   private credentials: ClientCredentials | null
   private onData: SubscriptionCallback
@@ -55,7 +46,10 @@ export class SSESubscription {
     onError: ErrorCallback,
     credentials?: ClientCredentials | null
   ) {
-    this.url = url
+    // Fix localhost IPv6 issue - Chromium may prefer IPv6 but servers often only listen on IPv4
+    this.url = url.includes('://localhost:')
+      ? url.replace('://localhost:', '://127.0.0.1:')
+      : url
     this.onData = onData
     this.onError = onError
     this.credentials = credentials ?? null
@@ -63,68 +57,8 @@ export class SSESubscription {
 
   connect(): void {
     this.disconnect()
-
-    if (isElectron()) {
-      this.connectViaIPC()
-    } else {
-      this.abortController = new AbortController()
-      this.startFetch()
-    }
-  }
-
-  private async connectViaIPC(): Promise<void> {
-    const headers: Record<string, string> = {
-      'Accept': 'text/event-stream'
-    }
-
-    if (this.credentials) {
-      if (this.credentials.type === 'bearer') {
-        headers['Authorization'] = `Bearer ${this.credentials.token}`
-      } else {
-        const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
-        headers['Authorization'] = `Basic ${encoded}`
-      }
-    }
-
-    try {
-      const result = await window.electronAPI!.sseConnect({
-        url: this.url,
-        headers
-      })
-
-      if (!result.ok) {
-        throw new Error(result.error || 'Failed to connect')
-      }
-
-      this.streamId = result.streamId
-      this.connected = true
-      this.reconnectAttempts = 0
-      console.log('SSE connection opened via IPC')
-
-      // Set up event listeners
-      const dataCleanup = window.electronAPI!.onSSEData(result.streamId, (dataStr: string) => {
-        this.processMessage(dataStr)
-      })
-      this.cleanupFns.push(dataCleanup)
-
-      const errorCleanup = window.electronAPI!.onSSEError(result.streamId, (error: string) => {
-        console.error('SSE error:', error)
-        this.connected = false
-        this.handleDisconnect()
-      })
-      this.cleanupFns.push(errorCleanup)
-
-      const endCleanup = window.electronAPI!.onSSEEnd(result.streamId, () => {
-        this.connected = false
-        this.handleDisconnect()
-      })
-      this.cleanupFns.push(endCleanup)
-
-    } catch (err) {
-      this.connected = false
-      console.error('SSE error:', err)
-      this.handleDisconnect()
-    }
+    this.abortController = new AbortController()
+    this.startFetch()
   }
 
   private async startFetch(): Promise<void> {
@@ -228,12 +162,8 @@ export class SSESubscription {
       console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
 
       setTimeout(() => {
-        if (isElectron()) {
-          this.connectViaIPC()
-        } else {
-          this.abortController = new AbortController()
-          this.startFetch()
-        }
+        this.abortController = new AbortController()
+        this.startFetch()
       }, delay)
     } else {
       this.onError(new Error('Max reconnection attempts reached'))
@@ -241,22 +171,10 @@ export class SSESubscription {
   }
 
   disconnect(): void {
-    // Clean up IPC listeners
-    this.cleanupFns.forEach(fn => fn())
-    this.cleanupFns = []
-
-    // Disconnect IPC stream
-    if (this.streamId && isElectron()) {
-      window.electronAPI!.sseDisconnect(this.streamId)
-      this.streamId = null
-    }
-
-    // Abort fetch
     if (this.abortController) {
       this.abortController.abort()
       this.abortController = null
     }
-
     this.connected = false
     this.reconnectAttempts = 0
   }

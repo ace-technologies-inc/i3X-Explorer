@@ -14,13 +14,6 @@ import type { Credentials } from '../stores/connection'
 
 export type ClientCredentials = Credentials
 
-// Check if we're running in Electron with IPC available
-function isElectron(): boolean {
-  return typeof window !== 'undefined' &&
-         !!window.electronAPI &&
-         typeof window.electronAPI.httpRequest === 'function'
-}
-
 // #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
 // Extracts value/quality/timestamp from either standard format or nested Data.Value format
 // Standard: { value: X, quality: Y, timestamp: Z }
@@ -77,7 +70,12 @@ export class I3XClient {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const url = `${this.baseUrl}${path}`
+    // Fix localhost IPv6 issue - Chromium may prefer IPv6 but servers often only listen on IPv4
+    let url = `${this.baseUrl}${path}`
+    if (url.includes('://localhost:')) {
+      url = url.replace('://localhost:', '://127.0.0.1:')
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
@@ -88,25 +86,6 @@ export class I3XClient {
       headers['Authorization'] = authHeader
     }
 
-    // Use Electron IPC if available (bypasses CORS)
-    if (isElectron()) {
-      console.log('[Client] IPC request:', method, url)
-      const response = await window.electronAPI!.httpRequest({
-        url,
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined
-      })
-      console.log('[Client] IPC response:', response.status, response.ok)
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.text}`)
-      }
-
-      return JSON.parse(response.text)
-    }
-
-    // Fallback to fetch for non-Electron environments
     const options: RequestInit = {
       method,
       headers
