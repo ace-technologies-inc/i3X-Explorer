@@ -94,7 +94,7 @@ export function Toolbar() {
   return (
     <div className="h-12 bg-i3x-surface border-b border-i3x-border flex items-center px-4 gap-4 drag-region">
       {/* macOS traffic light spacing */}
-      <div className="w-16" />
+      {window.electronAPI?.platform === 'darwin' && <div className="w-16" />}
 
       <img src={iconPng} alt="" className="w-5 h-5" />
       <h1 className="text-sm font-semibold text-i3x-text">i3X Explorer</h1>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, safeStorage, nativeTheme } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, safeStorage, nativeTheme, Menu } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -50,8 +50,10 @@ function createWindow() {
       // Safe here because we load only our own trusted app code, not arbitrary web content.
       webSecurity: false
     },
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 15, y: 15 },
+    ...(process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset' as const,
+      trafficLightPosition: { x: 15, y: 15 },
+    } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f5',
     show: false
   })
@@ -80,6 +82,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Hide the native menu bar on Windows/Linux — the app toolbar covers all user actions.
+  // On macOS the system menu bar is kept (provides About, Edit shortcuts, etc.)
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+  }
+
   createWindow()
 })
 
