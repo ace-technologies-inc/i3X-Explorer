@@ -14,12 +14,13 @@ import type { Credentials } from '../stores/connection'
 
 export type ClientCredentials = Credentials
 
+export type ApiVersion = 'v0' | 'v1'
+
 // #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
 // Extracts value/quality/timestamp from either standard format or nested Data.Value format
 // Standard: { value: X, quality: Y, timestamp: Z }
 // Nested value: { value: { Data: { Value: X, Quality: Y, Timestamp: Z }, Source: {...} } }
 function extractVQT(payload: Record<string, unknown>): { value: unknown; quality?: string; timestamp?: string } {
-  // Check if the value field contains the nested Data structure
   if (payload.value && typeof payload.value === 'object' && payload.value !== null) {
     const valueObj = payload.value as Record<string, unknown>
     if (valueObj.Data && typeof valueObj.Data === 'object') {
@@ -31,7 +32,6 @@ function extractVQT(payload: Record<string, unknown>): { value: unknown; quality
       }
     }
   }
-  // Standard format
   return {
     value: payload.value,
     quality: payload.quality as string | undefined,
@@ -39,9 +39,41 @@ function extractVQT(payload: Record<string, unknown>): { value: unknown; quality
   }
 }
 
+// v1 object instances use typeElementId instead of typeId, and may omit namespaceUri.
+// Normalize to the ObjectInstance shape used throughout the app.
+function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
+  return {
+    elementId: raw.elementId as string,
+    displayName: raw.displayName as string,
+    typeId: ((raw.typeElementId ?? raw.typeId) as string) ?? '',
+    parentId: (raw.parentId as string | null) ?? null,
+    isComposition: raw.isComposition as boolean ?? false,
+    namespaceUri: ((raw.namespaceUri ?? raw.typeNamespaceUri) as string) ?? '',
+    relationships: raw.relationships as Record<string, unknown> | undefined
+  }
+}
+
+// v1 POST bulk responses: {success, results: [{success, elementId, result: T}]}
+// Returns the results array, or empty array if the shape doesn't match.
+function extractV1BulkResults<T>(raw: unknown): Array<{ success: boolean; elementId: string; result: T }> {
+  if (raw && typeof raw === 'object' && 'results' in (raw as object)) {
+    return ((raw as Record<string, unknown>).results as Array<{ success: boolean; elementId: string; result: T }>) ?? []
+  }
+  return []
+}
+
+export interface StreamConfig {
+  url: string
+  method: 'GET' | 'POST'
+  postBody?: object
+}
+
 export class I3XClient {
   private baseUrl: string
   private credentials: ClientCredentials | null
+  private apiVersion: ApiVersion = 'v0'
+  // Track last seen sequence number per subscription for v1 sync acknowledgment
+  private syncSequenceNumbers = new Map<string, number>()
 
   constructor(baseUrl: string, credentials?: ClientCredentials | null) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
@@ -65,6 +97,10 @@ export class I3XClient {
     return this.baseUrl
   }
 
+  getApiVersion(): ApiVersion {
+    return this.apiVersion
+  }
+
   private async request<T>(
     method: string,
     path: string,
@@ -86,11 +122,7 @@ export class I3XClient {
       headers['Authorization'] = authHeader
     }
 
-    const options: RequestInit = {
-      method,
-      headers
-    }
-
+    const options: RequestInit = { method, headers }
     if (body) {
       options.body = JSON.stringify(body)
     }
@@ -102,17 +134,48 @@ export class I3XClient {
       throw new Error(`HTTP ${response.status}: ${errorText}`)
     }
 
-    return response.json()
+    const data = await response.json()
+
+    // v1 wraps single-value responses: {success: true, result: <data>}
+    // POST bulk responses use {success, results: [...]} and are handled per-method.
+    if (this.apiVersion === 'v1' && data && typeof data === 'object') {
+      const d = data as Record<string, unknown>
+      if ('result' in d && !('results' in d)) {
+        return d.result as T
+      }
+    }
+
+    return data as T
+  }
+
+  // Detect API version by probing GET /info (v1 only). Falls back to v0.
+  private async detectVersion(): Promise<void> {
+    try {
+      let url = `${this.baseUrl}/info`
+      if (url.includes('://localhost:')) {
+        url = url.replace('://localhost:', '://127.0.0.1:')
+      }
+      const headers: Record<string, string> = { 'Accept': 'application/json' }
+      const authHeader = this.getAuthHeader()
+      if (authHeader) headers['Authorization'] = authHeader
+
+      const response = await fetch(url, { method: 'GET', headers })
+      this.apiVersion = response.ok ? 'v1' : 'v0'
+    } catch {
+      this.apiVersion = 'v0'
+    }
   }
 
   // Exploratory Methods (RFC 4.1)
 
   async getNamespaces(): Promise<Namespace[]> {
+    // v0: Namespace[]  v1: auto-unwrapped from {success, result: Namespace[]}
     return this.request<Namespace[]>('GET', '/namespaces')
   }
 
   async getObjectTypes(namespaceUri?: string): Promise<ObjectType[]> {
     const params = namespaceUri ? `?namespaceUri=${encodeURIComponent(namespaceUri)}` : ''
+    // ObjectType shape is compatible between v0 and v1 (extra fields ignored)
     return this.request<ObjectType[]>('GET', `/objecttypes${params}`)
   }
 
@@ -122,20 +185,29 @@ export class I3XClient {
 
   async getRelationshipTypes(namespaceUri?: string): Promise<RelationshipType[]> {
     const params = namespaceUri ? `?namespaceUri=${encodeURIComponent(namespaceUri)}` : ''
+    // RelationshipType shape is compatible between v0 and v1 (extra fields ignored)
     return this.request<RelationshipType[]>('GET', `/relationshiptypes${params}`)
   }
 
   async getObjects(typeId?: string, includeMetadata = false): Promise<ObjectInstance[]> {
     const params = new URLSearchParams()
-    if (typeId) params.set('typeId', typeId)
+    // v1 renamed the query param: typeId → typeElementId
+    if (typeId) params.set(this.apiVersion === 'v1' ? 'typeElementId' : 'typeId', typeId)
     params.set('includeMetadata', String(includeMetadata))
-    const queryString = params.toString()
-    return this.request<ObjectInstance[]>('GET', `/objects?${queryString}`)
+    const raw = await this.request<Array<Record<string, unknown>>>('GET', `/objects?${params.toString()}`)
+    if (this.apiVersion === 'v1') {
+      return raw.map(normalizeV1Object)
+    }
+    return raw as unknown as ObjectInstance[]
   }
 
   async getObject(elementId: string, includeMetadata = false): Promise<ObjectInstance> {
     const params = `?includeMetadata=${includeMetadata}`
-    return this.request<ObjectInstance>('GET', `/objects/${encodeURIComponent(elementId)}${params}`)
+    const raw = await this.request<Record<string, unknown>>('GET', `/objects/${encodeURIComponent(elementId)}${params}`)
+    if (this.apiVersion === 'v1') {
+      return normalizeV1Object(raw)
+    }
+    return raw as unknown as ObjectInstance
   }
 
   async getRelatedObjects(
@@ -143,7 +215,25 @@ export class I3XClient {
     relationshipType?: string,
     includeMetadata = false
   ): Promise<ObjectInstance[]> {
-    // Returns direct array
+    if (this.apiVersion === 'v1') {
+      // v1: subscriptionId in body, camelCase field, bulk results response
+      const raw = await this.request<unknown>('POST', '/objects/related', {
+        elementIds: [elementId],
+        relationshipType,
+        includeMetadata
+      })
+      const results = extractV1BulkResults<Array<Record<string, unknown>>>(raw)
+      const objects: ObjectInstance[] = []
+      for (const item of results) {
+        if (item.success && Array.isArray(item.result)) {
+          for (const obj of item.result) {
+            objects.push(normalizeV1Object(obj))
+          }
+        }
+      }
+      return objects
+    }
+    // v0: lowercase field, direct array response
     return this.request<ObjectInstance[]>('POST', '/objects/related', {
       elementIds: [elementId],
       relationshiptype: relationshipType,
@@ -154,7 +244,25 @@ export class I3XClient {
   // Value Methods (RFC 4.2.1)
 
   async getValue(elementId: string, maxDepth = 1): Promise<LastKnownValue | null> {
-    // Response format: {elementId: {data: [{value, quality, timestamp}]}}
+    if (this.apiVersion === 'v1') {
+      // v1: bulk results; flat {value, quality, timestamp} in result (no data array)
+      const raw = await this.request<unknown>('POST', '/objects/value', { elementIds: [elementId], maxDepth })
+      const results = extractV1BulkResults<Record<string, unknown>>(raw)
+      const item = results.find(r => r.elementId === elementId && r.success)
+      if (item?.result) {
+        return {
+          elementId,
+          value: item.result.value as Record<string, unknown>,
+          quality: item.result.quality as string | undefined,
+          timestamp: item.result.timestamp as string | undefined,
+          parentId: null,
+          isComposition: item.result.isComposition as boolean ?? false,
+          namespaceUri: ''
+        } as LastKnownValue
+      }
+      return null
+    }
+    // v0: {elementId: {data: [{value, quality, timestamp}]}}
     const response = await this.request<Record<string, { data: Array<Record<string, unknown>> }>>(
       'POST', '/objects/value', { elementIds: [elementId], maxDepth }
     )
@@ -167,7 +275,22 @@ export class I3XClient {
   }
 
   async getValues(elementIds: string[], maxDepth = 1): Promise<LastKnownValue[]> {
-    // Response format: {elementId: {data: [{value, quality, timestamp}]}, ...}
+    if (this.apiVersion === 'v1') {
+      const raw = await this.request<unknown>('POST', '/objects/value', { elementIds, maxDepth })
+      const results = extractV1BulkResults<Record<string, unknown>>(raw)
+      return results
+        .filter(r => r.success && r.result)
+        .map(r => ({
+          elementId: r.elementId,
+          value: r.result.value as Record<string, unknown>,
+          quality: r.result.quality as string | undefined,
+          timestamp: r.result.timestamp as string | undefined,
+          parentId: null,
+          isComposition: r.result.isComposition as boolean ?? false,
+          namespaceUri: ''
+        } as LastKnownValue))
+    }
+    // v0
     const response = await this.request<Record<string, { data: Array<Record<string, unknown>> }>>(
       'POST', '/objects/value', { elementIds, maxDepth }
     )
@@ -188,10 +311,6 @@ export class I3XClient {
     endTime?: string,
     maxDepth = 1
   ): Promise<HistoricalValue> {
-    // Response format: {elementId: {data: [...]}}
-    const response = await this.request<Record<string, { data: Record<string, unknown>[] }>>(
-      'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
-    )
     const defaultValue: HistoricalValue = {
       elementId,
       value: [],
@@ -200,6 +319,23 @@ export class I3XClient {
       isComposition: false,
       namespaceUri: ''
     }
+    if (this.apiVersion === 'v1') {
+      // v1: bulk results; history in result.values (not data)
+      const raw = await this.request<unknown>(
+        'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
+      )
+      const results = extractV1BulkResults<{ isComposition: boolean; values: Record<string, unknown>[] }>(raw)
+      const item = results.find(r => r.elementId === elementId && r.success)
+      return {
+        ...defaultValue,
+        isComposition: item?.result?.isComposition ?? false,
+        value: item?.result?.values ?? []
+      }
+    }
+    // v0: {elementId: {data: [...]}}
+    const response = await this.request<Record<string, { data: Record<string, unknown>[] }>>(
+      'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
+    )
     const entry = response[elementId]
     if (entry?.data) {
       return { ...defaultValue, value: entry.data }
@@ -210,15 +346,31 @@ export class I3XClient {
   // Subscription Methods (RFC 4.2.3)
 
   async getSubscriptions(): Promise<GetSubscriptionsResponse> {
+    if (this.apiVersion === 'v1') {
+      // v1 has no list-all endpoint; caller must track IDs returned from createSubscription
+      return { subscriptionIds: [] }
+    }
     return this.request<GetSubscriptionsResponse>('GET', '/subscriptions')
   }
 
   async createSubscription(): Promise<CreateSubscriptionResponse> {
-    return this.request<CreateSubscriptionResponse>('POST', '/subscriptions', {})
+    // v0: {subscriptionId, message}
+    // v1: auto-unwrapped from {success, result: {clientId, subscriptionId, displayName}}
+    const response = await this.request<Record<string, unknown>>('POST', '/subscriptions', {})
+    return {
+      subscriptionId: String(response.subscriptionId),
+      message: (response.message as string | undefined) ?? 'Subscription created'
+    }
   }
 
   async deleteSubscription(subscriptionId: string): Promise<void> {
-    await this.request<unknown>('DELETE', `/subscriptions/${subscriptionId}`)
+    if (this.apiVersion === 'v1') {
+      // v1: DELETE replaced by POST /subscriptions/delete with IDs in body
+      await this.request<unknown>('POST', '/subscriptions/delete', { subscriptionIds: [subscriptionId] })
+    } else {
+      await this.request<unknown>('DELETE', `/subscriptions/${subscriptionId}`)
+    }
+    this.syncSequenceNumbers.delete(subscriptionId)
   }
 
   async registerMonitoredItems(
@@ -226,54 +378,92 @@ export class I3XClient {
     elementIds: string[],
     maxDepth = 1
   ): Promise<unknown> {
-    return this.request<unknown>(
-      'POST',
-      `/subscriptions/${subscriptionId}/register`,
-      { elementIds, maxDepth }
-    )
+    if (this.apiVersion === 'v1') {
+      // v1: subscriptionId moved from URL path to request body
+      return this.request<unknown>('POST', '/subscriptions/register', { subscriptionId, elementIds, maxDepth })
+    }
+    return this.request<unknown>('POST', `/subscriptions/${subscriptionId}/register`, { elementIds, maxDepth })
   }
 
   async unregisterMonitoredItems(
     subscriptionId: string,
     elementIds: string[]
   ): Promise<unknown> {
-    return this.request<unknown>(
-      'POST',
-      `/subscriptions/${subscriptionId}/unregister`,
-      { elementIds }
-    )
+    if (this.apiVersion === 'v1') {
+      return this.request<unknown>('POST', '/subscriptions/unregister', { subscriptionId, elementIds })
+    }
+    return this.request<unknown>('POST', `/subscriptions/${subscriptionId}/unregister`, { elementIds })
   }
 
   async sync(subscriptionId: string): Promise<SyncResponseItem[]> {
-    // Response format: [{elementId: {data: [{value, quality, timestamp}]}}, ...]
-    const response = await this.request<Array<Record<string, { data: Array<Record<string, unknown>> }>>>(
-      'POST',
-      `/subscriptions/${subscriptionId}/sync`
-    )
+    let raw: Array<Record<string, unknown>>
+
+    if (this.apiVersion === 'v1') {
+      // v1: subscriptionId in body; auto-unwrapped from {success, result: [...]}
+      const lastSeq = this.syncSequenceNumbers.get(subscriptionId)
+      raw = await this.request<Array<Record<string, unknown>>>('POST', '/subscriptions/sync', {
+        subscriptionId,
+        ...(lastSeq !== undefined ? { lastSequenceNumber: lastSeq } : {})
+      })
+    } else {
+      raw = await this.request<Array<Record<string, unknown>>>('POST', `/subscriptions/${subscriptionId}/sync`)
+    }
+
     const items: SyncResponseItem[] = []
-    for (const entry of response) {
-      for (const [elementId, payload] of Object.entries(entry)) {
-        if (payload?.data?.[0]) {
-          const vqt = extractVQT(payload.data[0])
-          items.push({
-            elementId,
-            value: vqt.value,
-            quality: vqt.quality ?? null,
-            timestamp: vqt.timestamp ?? null
-          })
+    for (const entry of raw ?? []) {
+      if (typeof entry.elementId === 'string') {
+        // v1 flat format: {elementId, value, quality, timestamp}
+        const seq = entry.sequenceNumber
+        if (typeof seq === 'number') {
+          const current = this.syncSequenceNumbers.get(subscriptionId) ?? -1
+          if (seq > current) this.syncSequenceNumbers.set(subscriptionId, seq)
+        }
+        items.push({
+          elementId: entry.elementId,
+          value: entry.value,
+          quality: (entry.quality as string | null) ?? null,
+          timestamp: (entry.timestamp as string | null) ?? null
+        })
+      } else {
+        // v0 keyed format: {elementId: {data: [{value, quality, timestamp}]}}
+        for (const [elementId, payload] of Object.entries(entry)) {
+          const p = payload as Record<string, unknown>
+          if (p?.data && Array.isArray(p.data) && p.data[0]) {
+            const vqt = extractVQT(p.data[0] as Record<string, unknown>)
+            items.push({
+              elementId,
+              value: vqt.value,
+              quality: vqt.quality ?? null,
+              timestamp: vqt.timestamp ?? null
+            })
+          }
         }
       }
     }
     return items
   }
 
-  getStreamUrl(subscriptionId: string): string {
-    return `${this.baseUrl}/subscriptions/${subscriptionId}/stream`
+  // Returns the config needed to open an SSE stream.
+  // v0: GET /subscriptions/{id}/stream
+  // v1: POST /subscriptions/stream  (subscriptionId in body)
+  getStreamConfig(subscriptionId: string): StreamConfig {
+    if (this.apiVersion === 'v1') {
+      return {
+        url: `${this.baseUrl}/subscriptions/stream`,
+        method: 'POST',
+        postBody: { subscriptionId }
+      }
+    }
+    return {
+      url: `${this.baseUrl}/subscriptions/${subscriptionId}/stream`,
+      method: 'GET'
+    }
   }
 
-  // Connection test
+  // Connection test — also detects API version (v0 vs v1)
   async testConnection(): Promise<boolean> {
     try {
+      await this.detectVersion()
       await this.getNamespaces()
       return true
     } catch {
