@@ -33,6 +33,7 @@ export class SSESubscription {
   private abortController: AbortController | null = null
   private url: string
   private credentials: ClientCredentials | null
+  private postBody: object | undefined
   private onData: SubscriptionCallback
   private onError: ErrorCallback
   private reconnectAttempts = 0
@@ -44,7 +45,10 @@ export class SSESubscription {
     url: string,
     onData: SubscriptionCallback,
     onError: ErrorCallback,
-    credentials?: ClientCredentials | null
+    credentials?: ClientCredentials | null,
+    // If provided, the stream is opened with POST + JSON body (v1).
+    // If omitted, uses GET (v0).
+    postBody?: object
   ) {
     // Fix localhost IPv6 issue - Chromium may prefer IPv6 but servers often only listen on IPv4
     this.url = url.includes('://localhost:')
@@ -53,6 +57,7 @@ export class SSESubscription {
     this.onData = onData
     this.onError = onError
     this.credentials = credentials ?? null
+    this.postBody = postBody
   }
 
   connect(): void {
@@ -66,6 +71,10 @@ export class SSESubscription {
       'Accept': 'text/event-stream'
     }
 
+    if (this.postBody) {
+      headers['Content-Type'] = 'application/json'
+    }
+
     if (this.credentials) {
       if (this.credentials.type === 'bearer') {
         headers['Authorization'] = `Bearer ${this.credentials.token}`
@@ -77,8 +86,9 @@ export class SSESubscription {
 
     try {
       const response = await fetch(this.url, {
-        method: 'GET',
+        method: this.postBody ? 'POST' : 'GET',
         headers,
+        body: this.postBody ? JSON.stringify(this.postBody) : undefined,
         signal: this.abortController?.signal
       })
 
@@ -132,18 +142,30 @@ export class SSESubscription {
 
   private processMessage(dataStr: string): void {
     try {
-      const rawData = JSON.parse(dataStr) as Array<Record<string, { data: Array<Record<string, unknown>> }>>
+      const rawData = JSON.parse(dataStr) as Array<Record<string, unknown>>
       const items: SyncResponseItem[] = []
       for (const entry of rawData) {
-        for (const [elementId, payload] of Object.entries(entry)) {
-          if (payload?.data?.[0]) {
-            const vqt = extractVQT(payload.data[0])
-            items.push({
-              elementId,
-              value: vqt.value,
-              quality: vqt.quality ?? null,
-              timestamp: vqt.timestamp ?? null
-            })
+        if (typeof entry.elementId === 'string') {
+          // v1 flat format: {elementId, value, quality, timestamp}
+          items.push({
+            elementId: entry.elementId,
+            value: entry.value,
+            quality: (entry.quality as string | null) ?? null,
+            timestamp: (entry.timestamp as string | null) ?? null
+          })
+        } else {
+          // v0 keyed format: {elementId: {data: [{value, quality, timestamp}]}}
+          for (const [elementId, payload] of Object.entries(entry)) {
+            const p = payload as Record<string, unknown>
+            if (p?.data && Array.isArray(p.data) && p.data[0]) {
+              const vqt = extractVQT(p.data[0] as Record<string, unknown>)
+              items.push({
+                elementId,
+                value: vqt.value,
+                quality: vqt.quality ?? null,
+                timestamp: vqt.timestamp ?? null
+              })
+            }
           }
         }
       }

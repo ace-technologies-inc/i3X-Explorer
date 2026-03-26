@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
-import { createClient, destroyClient, getClient } from '../../api/client'
+import { createClient, destroyClient, getClient, type ApiVersion } from '../../api/client'
 import iconPng from '/icon.png'
 
 type Theme = 'light' | 'dark'
@@ -15,6 +15,7 @@ function getInitialTheme(): Theme {
 
 export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const [apiVersion, setApiVersion] = useState<ApiVersion | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -57,6 +58,7 @@ export function Toolbar() {
 
       if (success) {
         setConnected(true)
+        setApiVersion(client.getApiVersion())
         addRecentUrl(serverUrl)
 
         // Load initial data
@@ -89,6 +91,7 @@ export function Toolbar() {
     disconnectStore()
     resetExplorer()
     clearSubscriptions()
+    setApiVersion(null)
   }
 
   return (
@@ -154,6 +157,11 @@ export function Toolbar() {
         <span className="text-xs text-i3x-text-muted">
           {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
         </span>
+        {isConnected && apiVersion && (
+          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-i3x-primary/10 text-i3x-primary border border-i3x-primary/20">
+            {apiVersion}
+          </span>
+        )}
         {isConnected && credentials && (
           <span title="Authenticated connection">🔒</span>
         )}

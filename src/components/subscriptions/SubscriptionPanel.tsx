@@ -78,15 +78,17 @@ export function SubscriptionPanel() {
       pollingRef.current.start()
     } else {
       // Use SSE (QoS0) - real-time but may have CORS issues
-      const streamUrl = client.getStreamUrl(subscriptionId)
+      // v0: GET /subscriptions/{id}/stream  v1: POST /subscriptions/stream
+      const streamConfig = client.getStreamConfig(subscriptionId)
       sseRef.current = new SSESubscription(
-        streamUrl,
+        streamConfig.url,
         handleDataUpdate,
         (error) => {
           console.error('SSE error:', error)
           setStreaming(subscriptionId, false)
         },
-        client.getCredentials()
+        client.getCredentials(),
+        streamConfig.postBody
       )
       sseRef.current.connect()
     }
