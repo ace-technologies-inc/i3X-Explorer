@@ -40,16 +40,19 @@ function extractVQT(payload: Record<string, unknown>): { value: unknown; quality
 }
 
 // v1 object instances use typeElementId instead of typeId, and may omit namespaceUri.
+// As of commit 27f15c7, metadata fields (typeNamespaceUri, relationships, etc.) are
+// nested under raw.metadata rather than being flat on the object.
 // Normalize to the ObjectInstance shape used throughout the app.
 function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
+  const metadata = (raw.metadata ?? {}) as Record<string, unknown>
   return {
     elementId: raw.elementId as string,
     displayName: raw.displayName as string,
     typeId: ((raw.typeElementId ?? raw.typeId) as string) ?? '',
     parentId: (raw.parentId as string | null) ?? null,
     isComposition: raw.isComposition as boolean ?? false,
-    namespaceUri: ((raw.namespaceUri ?? raw.typeNamespaceUri) as string) ?? '',
-    relationships: raw.relationships as Record<string, unknown> | undefined
+    namespaceUri: ((raw.namespaceUri ?? metadata.typeNamespaceUri) as string) ?? '',
+    relationships: (metadata.relationships ?? raw.relationships) as Record<string, unknown> | undefined
   }
 }
 
@@ -226,7 +229,9 @@ export class I3XClient {
       const objects: ObjectInstance[] = []
       for (const item of results) {
         if (item.success && Array.isArray(item.result)) {
-          for (const obj of item.result) {
+          for (const envelope of item.result) {
+            // As of commit 27f15c7, each entry is { sourceRelationship, object: {...} }
+            const obj = (envelope.object ?? envelope) as Record<string, unknown>
             objects.push(normalizeV1Object(obj))
           }
         }
