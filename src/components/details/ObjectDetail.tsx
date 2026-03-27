@@ -48,7 +48,8 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
 
     })
         
-    selectItem({type:"object",id: "",data: results[0]} as SelectedItem)    
+    if (results.length > 0)
+      selectItem({type:"object",id: "",data: results[0]} as SelectedItem)    
   }
 
   const handleSubscribe = async () => {
