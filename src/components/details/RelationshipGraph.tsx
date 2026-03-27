@@ -35,6 +35,7 @@ const COLORS = {
   border:    'rgb(var(--i3x-border))',
   text:      'rgb(var(--i3x-text))',
   textMuted: 'rgb(var(--i3x-text-muted))',
+  translucent:    'rgb(var(--i3x-translucent))'
 }
 
 export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProps) {
@@ -194,6 +195,7 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
           // Color code by relationship type
           const strokeColor = isParent ? COLORS.warning : isChild ? COLORS.success : COLORS.border
 
+          const fillColor = related.isComposition ? COLORS.surface : COLORS.translucent;
           return (
             <g
               key={`${related.elementId}-${related.relationshipType}`}
@@ -207,7 +209,7 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
                 width={BOX_WIDTH}
                 height={BOX_HEIGHT}
                 rx="6"
-                fill={COLORS.surface}
+                fill={fillColor}
                 stroke={strokeColor}
                 strokeWidth="2"
               />

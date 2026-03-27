@@ -12,6 +12,7 @@ const FolderIcon = () => <span className="text-i3x-warning">📁</span>
 const NamespaceIcon = () => <span className="text-i3x-primary">🌐</span>
 const TypeIcon = () => <span className="text-i3x-success">📃</span>
 const ObjectIcon = () => <span className="text-i3x-secondary">📦</span>
+const LeafIcon = () => <span className="text-i3x-tertiary">⬤</span>
 const ChevronRight = () => <span className="text-i3x-text-muted">›</span>
 const ChevronDown = () => <span className="text-i3x-text-muted">⌄</span>
 
@@ -115,8 +116,11 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         return <NamespaceIcon />
       case 'objectType':
         return <TypeIcon />
-      case 'object':
-        return <ObjectIcon />
+      case 'object': 
+        if (hasChildren == true)      
+          return <ObjectIcon />
+        else
+          return <LeafIcon />
       case 'folder':
         return <FolderIcon />
     }
