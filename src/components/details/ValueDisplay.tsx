@@ -6,9 +6,13 @@ interface ValueDisplayProps {
 }
 
 export function ValueDisplay({ value }: ValueDisplayProps) {
-  const qualityClass = value.timestamp
+  var qualityClass = value.timestamp
     ? 'quality-good'
     : 'quality-unknown'
+
+  if (value.quality != 'GOOD') qualityClass = 'quality-uncertain';  
+  if (value.quality == 'BAD') qualityClass = 'quality-bad';    
+  if (value.quality == 'NOT_CONNECTED') qualityClass = 'quality-bad';  
 
   return (
     <div className="bg-i3x-surface rounded overflow-hidden">

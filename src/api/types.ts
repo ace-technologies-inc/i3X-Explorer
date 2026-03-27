@@ -44,6 +44,7 @@ export interface LastKnownValue {
   namespaceUri: string
   dataType?: string
   timestamp?: string
+  quality?: string
 }
 
 // RFC 4.2.1.2 - Historical Value
