@@ -4,7 +4,8 @@ import { getClient } from '../../api/client'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { JsonViewer } from './JsonViewer'
 import { ValueDisplay } from './ValueDisplay'
-import { RelationshipGraph } from './RelationshipGraph'
+import { RelationshipGraph,RelatedObject } from './RelationshipGraph'
+import { useExplorerStore, type SelectedItem } from '../../stores/explorer'
 
 interface ObjectDetailProps {
   object: ObjectInstance
@@ -17,6 +18,7 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
   const [isRawDataExpanded, setIsRawDataExpanded] = useState(false)
 
   const { activeSubscriptionId, addMonitoredItem, setBottomPanelExpanded } = useSubscriptionsStore()
+  const { selectedItem, selectItem, allObjects } = useExplorerStore()
 
   useEffect(() => {
     loadValue()
@@ -37,6 +39,16 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
     } finally {
       setIsLoadingValue(false)
     }
+  }
+
+  const selectObject = async (ro: RelatedObject) => {
+    let results = allObjects.filter((itm) => {
+      if (ro.elementId == itm.elementId) return true;
+      return false;
+
+    })
+        
+    selectItem({type:"object",id: "",data: results[0]} as SelectedItem)    
   }
 
   const handleSubscribe = async () => {
@@ -128,7 +140,7 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
         {/* Relationship Graph */}
         <div className="xl:max-w-[600px] xl:shrink-0">
           <label className="block text-xs text-i3x-text-muted mb-1">Relationship Graph</label>
-          <RelationshipGraph object={object} />
+          <RelationshipGraph object={object} onNodeClick={selectObject}/>
         </div>
 
         {/* Current Value */}

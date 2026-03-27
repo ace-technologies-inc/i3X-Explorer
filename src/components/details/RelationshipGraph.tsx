@@ -1,12 +1,13 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type { ObjectInstance } from '../../api/types'
 import { getClient } from '../../api/client'
 
 interface RelationshipGraphProps {
   object: ObjectInstance
+  onNodeClick?: (node: RelatedObject) => void
 }
 
-interface RelatedObject {
+export interface RelatedObject {
   elementId: string
   displayName: string
   typeId: string
@@ -36,10 +37,12 @@ const COLORS = {
   textMuted: 'rgb(var(--i3x-text-muted))',
 }
 
-export function RelationshipGraph({ object }: RelationshipGraphProps) {
+export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProps) {
   const [relatedObjects, setRelatedObjects] = useState<RelatedObject[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
     loadRelationships()
@@ -111,12 +114,20 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
     )
   }
 
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return
+    const rect = svgRef.current.getBoundingClientRect()
+    setTooltip(prev => prev ? { ...prev, x: e.clientX - rect.left, y: e.clientY - rect.top } : null)
+  }
+
   return (
     <div className="w-full overflow-auto">
       <svg
+        ref={svgRef}
         width="600"
         height="400"
         style={{ minWidth: '600px', backgroundColor: COLORS.surface, borderRadius: '6px' }}
+        onMouseMove={handleMouseMove}
       >
         {/* Connection lines */}
         {positions.map((pos, index) => {
@@ -140,7 +151,11 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
         })}
 
         {/* Center object (selected) */}
-        <g transform={`translate(${CENTER_X - BOX_WIDTH / 2}, ${CENTER_Y - BOX_HEIGHT / 2})`}>
+        <g
+          transform={`translate(${CENTER_X - BOX_WIDTH / 2}, ${CENTER_Y - BOX_HEIGHT / 2})`}
+          onMouseEnter={() => setTooltip({ x: 0, y: 0, text: object.displayName })}
+          onMouseLeave={() => setTooltip(null)}
+        >
           <rect
             width={BOX_WIDTH}
             height={BOX_HEIGHT}
@@ -184,6 +199,9 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
               key={`${related.elementId}-${related.relationshipType}`}
               transform={`translate(${pos.x - BOX_WIDTH / 2}, ${pos.y - BOX_HEIGHT / 2})`}
               style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setTooltip({ x: 0, y: 0, text: related.displayName })}
+              onMouseLeave={() => setTooltip(null)}
+              onClick={() => onNodeClick?.(related)}
             >
               <rect
                 width={BOX_WIDTH}
@@ -216,6 +234,38 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
           )
         })}
 
+        {/* Hover tooltip */}
+        {tooltip && (() => {
+          const pad = 6
+          const estimatedWidth = Math.min(Math.max(tooltip.text.length * 6.5 + pad * 2, 60), 320)
+          const tipH = 24
+          const tx = Math.min(tooltip.x + 12, 600 - estimatedWidth - 4)
+          const ty = tooltip.y - tipH - 8 < 4 ? tooltip.y + 16 : tooltip.y - tipH - 8
+          return (
+            <g style={{ pointerEvents: 'none' }}>
+              <rect
+                x={tx}
+                y={ty}
+                width={estimatedWidth}
+                height={tipH}
+                rx="4"
+                fill={COLORS.surface}
+                stroke={COLORS.border}
+                strokeWidth="1"
+                filter="drop-shadow(0 1px 3px rgba(0,0,0,0.25))"
+              />
+              <text
+                x={tx + pad}
+                y={ty + tipH / 2 + 4}
+                fill={COLORS.text}
+                fontSize="11"
+              >
+                {tooltip.text}
+              </text>
+            </g>
+          )
+        })()}
+
         {/* Legend */}
         <g transform="translate(10, 360)">
           <line x1="0" y1="10" x2="25" y2="10" stroke={COLORS.warning} strokeWidth="2" />
@@ -231,6 +281,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
     </div>
   )
 }
+
 
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text
