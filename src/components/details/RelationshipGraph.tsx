@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import type { ObjectInstance } from '../../api/types'
+import type { ObjectInstance,RelationshipType } from '../../api/types'
 import { getClient } from '../../api/client'
+import { useExplorerStore } from '../../stores/explorer'
 
 interface RelationshipGraphProps {
   object: ObjectInstance
@@ -13,7 +14,7 @@ export interface RelatedObject {
   typeId: string
   isComposition: boolean
   parentId?: string | null
-  relationshipType: string
+  relationshipTypes: [string]
 }
 
 // Layout constants
@@ -44,6 +45,7 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
   const [error, setError] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const { allRelationships } = useExplorerStore()
 
   useEffect(() => {
     loadRelationships()
@@ -60,17 +62,37 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
       // Get all related objects with a single API call (no relationship type filter)
       const related = await client.getRelatedObjects(object.elementId)
 
-      // Map to our RelatedObject format
-      const graphRelationships: RelatedObject[] = related.map(r => ({
-        elementId: r.elementId,
-        displayName: r.displayName,
-        typeId: r.typeId,
-        isComposition: r.isComposition,
-        parentId: r.parentId,
-        // Determine relationship type based on parentId
-        relationshipType: r.parentId === object.elementId ? 'HasComponent' :
-                         object.parentId === r.elementId ? 'HasParent' : 'Related'
-      }))
+      const idmap : { [key: string]: RelatedObject } = {};
+      const graphRelationships: RelatedObject[] = new Array<RelatedObject>();
+      related.forEach((r) => {
+        var reltype : string = 'Other';
+        if (r.sourceRelationship != null) {
+          reltype = r.sourceRelationship;
+
+          allRelationships.forEach((rt) => {
+            if (rt.elementId == reltype) {
+              reltype = rt.displayName;
+            }
+          })
+        }
+        
+
+        if (idmap[r.elementId])
+        {
+          idmap[r.elementId].relationshipTypes.push(reltype);
+          return;
+        } 
+        const ro: RelatedObject = {
+          elementId: r.elementId,
+          displayName: r.displayName,
+          typeId: r.typeId,
+          isComposition: r.isComposition,
+          parentId: r.parentId,
+          relationshipTypes: [reltype]
+        }
+        idmap[r.elementId] = ro;
+        graphRelationships.push(ro);
+      })      
 
       setRelatedObjects(graphRelationships)
     } catch (err) {
@@ -133,9 +155,10 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
         {/* Connection lines */}
         {positions.map((pos, index) => {
           const related = relatedObjects[index]
-          const isParent = related.relationshipType === 'HasParent'
-          const isChild = related.relationshipType === 'HasChildren' || related.relationshipType === 'HasComponent'
+          const isParent = related.relationshipTypes[0] === 'HasParent'
+          const isChild = related.relationshipTypes[0] === 'HasChildren' || related.relationshipTypes[0] === 'HasComponent'
           const strokeColor = isParent ? COLORS.warning : isChild ? COLORS.success : COLORS.border
+          const linkWidth = relatedObjects[index].relationshipTypes.length * 2;
 
           return (
             <line
@@ -145,7 +168,7 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
               x2={pos.x}
               y2={pos.y}
               stroke={strokeColor}
-              strokeWidth="2"
+              strokeWidth={linkWidth}
               strokeDasharray={isParent || isChild ? "none" : "5,5"}
             />
           )
@@ -189,8 +212,8 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
         {/* Related objects */}
         {relatedObjects.map((related, index) => {
           const pos = positions[index]
-          const isParent = related.relationshipType === 'HasParent'
-          const isChild = related.relationshipType === 'HasChildren' || related.relationshipType === 'HasComponent'
+          const isParent = related.relationshipTypes.includes('HasParent')
+          const isChild = related.relationshipTypes.includes('HasChildren') || related.relationshipTypes.includes('HasComponent')
 
           // Color code by relationship type
           const strokeColor = isParent ? COLORS.warning : isChild ? COLORS.success : COLORS.border
@@ -198,7 +221,7 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
           const fillColor = related.isComposition ? COLORS.surface : COLORS.translucent;
           return (
             <g
-              key={`${related.elementId}-${related.relationshipType}`}
+              key={`${related.elementId}-${related.relationshipTypes[0]}`}
               transform={`translate(${pos.x - BOX_WIDTH / 2}, ${pos.y - BOX_HEIGHT / 2})`}
               style={{ cursor: 'pointer' }}
               onMouseEnter={() => setTooltip({ x: 0, y: 0, text: related.displayName })}
@@ -230,7 +253,7 @@ export function RelationshipGraph({ object, onNodeClick }: RelationshipGraphProp
                 fill={COLORS.textMuted}
                 fontSize="9"
               >
-                {related.relationshipType}
+                {related.relationshipTypes[0]}
               </text>
             </g>
           )

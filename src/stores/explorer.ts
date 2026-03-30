@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Namespace, ObjectType, ObjectInstance } from '../api/types'
+import type { Namespace, ObjectType, ObjectInstance, RelationshipType } from '../api/types'
 
 export type TreeNodeType = 'namespace' | 'objectType' | 'object' | 'folder'
 
@@ -24,6 +24,7 @@ interface ExplorerState {
   objectTypes: ObjectType[]
   objects: Map<string, ObjectInstance[]> // keyed by typeId
   allObjects: ObjectInstance[] // flat list of all objects
+  allRelationships: RelationshipType[]
   childObjects: Map<string, ObjectInstance[]> // keyed by parent elementId
   expandedNodes: Set<string>
   selectedItem: SelectedItem | null
@@ -32,6 +33,7 @@ interface ExplorerState {
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
+  setRelationshipTypes: (rels: RelationshipType[]) => void
   setObjects: (typeId: string, objects: ObjectInstance[]) => void
   setAllObjects: (objects: ObjectInstance[]) => void
   setChildObjects: (parentId: string, children: ObjectInstance[]) => void
@@ -49,6 +51,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   objectTypes: [],
   objects: new Map(),
   allObjects: [],
+  allRelationships: [],
   childObjects: new Map(),
   expandedNodes: new Set(),
   selectedItem: null,
@@ -57,6 +60,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({ objectTypes: types }),
+  setRelationshipTypes: (rels) => set({ allRelationships: rels }),
 
   setObjects: (typeId, objects) => {
     const current = get().objects

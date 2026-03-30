@@ -39,7 +39,7 @@ export function Toolbar() {
     disconnect: disconnectStore
   } = useConnectionStore()
 
-  const { setNamespaces, setObjectTypes, setLoading, reset: resetExplorer } = useExplorerStore()
+  const { setNamespaces, setObjectTypes, setRelationshipTypes, setLoading, reset: resetExplorer } = useExplorerStore()
   const { clearAll: clearSubscriptions } = useSubscriptionsStore()
 
   const handleConnect = async () => {
@@ -63,12 +63,14 @@ export function Toolbar() {
 
         // Load initial data
         setLoading(true)
-        const [namespaces, objectTypes] = await Promise.all([
+        const [namespaces, objectTypes,relationshipTypes] = await Promise.all([
           client.getNamespaces(),
-          client.getObjectTypes()
+          client.getObjectTypes(),
+          client.getRelationshipTypes()
         ])
         setNamespaces(namespaces)
         setObjectTypes(objectTypes)
+        setRelationshipTypes(relationshipTypes)
         setLoading(false)
       } else {
         setError('Failed to connect to server')

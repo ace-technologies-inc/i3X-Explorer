@@ -18,7 +18,7 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
   const [isRawDataExpanded, setIsRawDataExpanded] = useState(false)
 
   const { activeSubscriptionId, addMonitoredItem, setBottomPanelExpanded } = useSubscriptionsStore()
-  const { selectedItem, selectItem, allObjects } = useExplorerStore()
+  const { selectItem, allObjects } = useExplorerStore()
 
   useEffect(() => {
     loadValue()

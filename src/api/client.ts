@@ -1,7 +1,7 @@
 import type {
   Namespace,
   ObjectType,
-  ObjectInstance,
+  ObjectInstance,  
   RelationshipType,
   LastKnownValue,
   HistoricalValue,
@@ -42,14 +42,15 @@ function extractVQT(payload: Record<string, unknown>): { value: unknown; quality
 // v1 object instances use typeElementId instead of typeId, and may omit namespaceUri.
 // Normalize to the ObjectInstance shape used throughout the app.
 function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
-  return {
+  return {    
     elementId: raw.elementId as string,
     displayName: raw.displayName as string,
     typeId: ((raw.typeElementId ?? raw.typeId) as string) ?? '',
     parentId: (raw.parentId as string | null) ?? null,
     isComposition: raw.isComposition as boolean ?? false,
-    namespaceUri: ((raw.namespaceUri ?? raw.typeNamespaceUri) as string) ?? '',
-    relationships: raw.relationships as Record<string, unknown> | undefined
+    namespaceUri: ((raw.namespaceUri ?? raw.typeNamespaceUri) as string) ?? '',    
+    relationships: raw.relationships as Record<string, unknown> | undefined,    
+    sourceRelationship: raw.sourceRelationship as string | undefined
   }
 }
 
