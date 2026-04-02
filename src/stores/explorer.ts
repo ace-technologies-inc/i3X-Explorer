@@ -24,6 +24,7 @@ interface ExplorerState {
   objectTypes: ObjectType[]
   objects: Map<string, ObjectInstance[]> // keyed by typeId
   allObjects: ObjectInstance[] // flat list of all objects
+  hierarchicalRoots: ObjectInstance[] // root objects for the Hierarchy folder (from root=true query)
   childObjects: Map<string, ObjectInstance[]> // keyed by parent elementId
   expandedNodes: Set<string>
   selectedItem: SelectedItem | null
@@ -34,6 +35,7 @@ interface ExplorerState {
   setObjectTypes: (types: ObjectType[]) => void
   setObjects: (typeId: string, objects: ObjectInstance[]) => void
   setAllObjects: (objects: ObjectInstance[]) => void
+  setHierarchicalRoots: (roots: ObjectInstance[]) => void
   setChildObjects: (parentId: string, children: ObjectInstance[]) => void
   toggleNode: (nodeId: string) => void
   expandNode: (nodeId: string) => void
@@ -49,6 +51,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   objectTypes: [],
   objects: new Map(),
   allObjects: [],
+  hierarchicalRoots: [],
   childObjects: new Map(),
   expandedNodes: new Set(),
   selectedItem: null,
@@ -66,6 +69,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   setAllObjects: (objects) => set({ allObjects: objects }),
+  setHierarchicalRoots: (roots) => set({ hierarchicalRoots: roots }),
 
   setChildObjects: (parentId, children) => {
     const current = get().childObjects
@@ -108,6 +112,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     objectTypes: [],
     objects: new Map(),
     allObjects: [],
+    hierarchicalRoots: [],
     childObjects: new Map(),
     expandedNodes: new Set(),
     selectedItem: null,

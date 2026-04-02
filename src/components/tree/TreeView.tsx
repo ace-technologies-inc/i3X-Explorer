@@ -31,7 +31,7 @@ interface TreeNodeProps {
 }
 
 function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeNodeProps) {
-  const { expandedNodes, selectedItem, toggleNode, selectItem, setObjects, setAllObjects, setChildObjects } = useExplorerStore()
+  const { expandedNodes, selectedItem, toggleNode, selectItem, setObjects, setAllObjects, setHierarchicalRoots, setChildObjects } = useExplorerStore()
 
   const isExpanded = expandedNodes.has(id)
   const isSelected = selectedItem?.id === id
@@ -73,6 +73,20 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         }
       }
 
+      // For the Hierarchy folder, also fetch root objects via root=true so the server
+      // determines what counts as a root (avoids relying on parentId === '/' locally)
+      if (id === HIERARCHICAL_FOLDER_ID && !isExpanded) {
+        const client = getClient()
+        if (client) {
+          try {
+            const roots = await client.getObjects(undefined, false, true)
+            setHierarchicalRoots(roots)
+          } catch (err) {
+            console.error('Failed to load root objects:', err)
+          }
+        }
+      }
+
       // Re-fetch all objects when expanding a hierarchy node (picks up newly discovered objects)
       if (id.startsWith('hier:') && !isExpanded) {
         const client = getClient()
@@ -107,7 +121,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         }
       }
     }
-  }, [data, type, id, hasChildren, isExpanded, selectItem, toggleNode, setObjects, setAllObjects, setChildObjects])
+  }, [data, type, id, hasChildren, isExpanded, selectItem, toggleNode, setObjects, setAllObjects, setHierarchicalRoots, setChildObjects])
 
   const getIcon = () => {
     switch (type) {
@@ -276,7 +290,7 @@ function HierarchicalObjectNode({
 }
 
 export function TreeView() {
-  const { namespaces, objectTypes, objects, allObjects, searchQuery } = useExplorerStore()
+  const { namespaces, objectTypes, objects, allObjects, hierarchicalRoots, searchQuery } = useExplorerStore()
   const isConnected = useConnectionStore(state => state.isConnected)
 
   // Background poll: re-fetch all currently-expanded tree data every 30s
@@ -287,7 +301,7 @@ export function TreeView() {
       const client = getClient()
       if (!client) return
 
-      const { expandedNodes, setNamespaces, setObjectTypes, setObjects, setAllObjects, setChildObjects } = useExplorerStore.getState()
+      const { expandedNodes, setNamespaces, setObjectTypes, setObjects, setAllObjects, setHierarchicalRoots, setChildObjects } = useExplorerStore.getState()
 
       // Refresh top-level namespace/type data
       try {
@@ -323,6 +337,15 @@ export function TreeView() {
             setAllObjects(objects)
           } catch (err) {
             console.error('Background refresh: all objects failed', err)
+          }
+        }
+
+        if (nodeId === HIERARCHICAL_FOLDER_ID) {
+          try {
+            const roots = await client.getObjects(undefined, false, true)
+            setHierarchicalRoots(roots)
+          } catch (err) {
+            console.error('Background refresh: root objects failed', err)
           }
         }
 
@@ -381,8 +404,6 @@ export function TreeView() {
       obj.elementId.toLowerCase().includes(filterText)
   )
 
-  // Find root objects for the Hierarchical folder (parentId === "/")
-  const hierarchicalRoots = allObjects.filter(obj => obj.parentId === '/')
   const filteredHierarchicalRoots = hierarchicalRoots.filter(
     (obj) =>
       !filterText ||

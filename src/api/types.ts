@@ -33,6 +33,8 @@ export interface ObjectInstanceMinimal {
 // RFC 3.1.1 + 3.1.2 - Object Instance (Full)
 export interface ObjectInstance extends ObjectInstanceMinimal {
   relationships?: Record<string, unknown>
+  // Populated when the object is returned via POST /objects/related (v1 envelope field)
+  sourceRelationship?: string
 }
 
 // RFC 4.2.1.1 - Last Known Value
@@ -40,10 +42,14 @@ export interface LastKnownValue {
   elementId: string
   value: Record<string, unknown>
   parentId: string | null
-  isComposition: boolean
+  // isComposition was removed from v1 value responses (spec commit 32be7d7);
+  // clients should infer composition from presence of the `components` field instead.
+  isComposition?: boolean
   namespaceUri: string
   dataType?: string
   timestamp?: string
+  quality?: string
+  components?: Record<string, { value: unknown; quality?: string; timestamp?: string }>
 }
 
 // RFC 4.2.1.2 - Historical Value
@@ -52,7 +58,7 @@ export interface HistoricalValue {
   value: Record<string, unknown> | Array<Record<string, unknown>>
   timestamp: string
   parentId: string | null
-  isComposition: boolean
+  isComposition?: boolean
   namespaceUri: string
   dataType?: string
 }
