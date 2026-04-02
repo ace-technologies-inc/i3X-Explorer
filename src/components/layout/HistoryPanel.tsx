@@ -81,7 +81,7 @@ export function HistoryPanel() {
     } finally {
       setIsLoading(false)
     }
-  }, [selectedElementId, isObjectSelected, isConnected])
+  }, [selectedElementId, isObjectSelected, isConnected, isCollapsed])
 
   const handleMouseDown = useCallback(() => {
     if (isCollapsed) return
