@@ -21,6 +21,7 @@ export function HistoryPanel() {
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasLoaded, setHasLoaded] = useState(false)
 
   const selectedItem = useExplorerStore((state) => state.selectedItem)
   const isConnected = useConnectionStore((state) => state.isConnected)
@@ -36,6 +37,7 @@ export function HistoryPanel() {
   useEffect(() => {
     setHistoryData([])
     setError(null)
+    setHasLoaded(false)
   }, [selectedElementId])
 
   const fetchHistory = useCallback(async () => {
@@ -74,6 +76,7 @@ export function HistoryPanel() {
       // Sort by timestamp
       points.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       setHistoryData(points)
+      setHasLoaded(true)
       if (isCollapsed) setIsCollapsed(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch history')
@@ -174,12 +177,16 @@ export function HistoryPanel() {
             {!error && historyData.length === 0 && !isLoading && (
               <div className="flex items-center gap-2">
                 {isObjectSelected ? (
-                  <button
-                    onClick={fetchHistory}
-                    className="px-3 py-1 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80"
-                  >
-                    Load History
-                  </button>
+                  hasLoaded ? (
+                    <p className="text-xs text-i3x-text-muted">No history data available for the past hour.</p>
+                  ) : (
+                    <button
+                      onClick={fetchHistory}
+                      className="px-3 py-1 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80"
+                    >
+                      Load History
+                    </button>
+                  )
                 ) : (
                   <p className="text-xs text-i3x-text-muted">Select an object to view history.</p>
                 )}
