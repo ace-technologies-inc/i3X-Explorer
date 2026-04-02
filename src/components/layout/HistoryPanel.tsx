@@ -247,8 +247,8 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
       return { path: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
     }
 
-    let minVal = Math.min(...validValues)
-    let maxVal = Math.max(...validValues)
+    let minVal = validValues.reduce((a, b) => a < b ? a : b, validValues[0])
+    let maxVal = validValues.reduce((a, b) => a > b ? a : b, validValues[0])
 
     const range = maxVal - minVal || 1
     minVal = minVal - range * 0.1
