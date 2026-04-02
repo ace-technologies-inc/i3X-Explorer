@@ -32,73 +32,56 @@ export function HistoryPanel() {
     ? (selectedItem.data as ObjectInstance).elementId
     : null
 
-  // Fetch history when object is selected
+  // Clear history when selection changes
   useEffect(() => {
-    if (!isObjectSelected || !selectedElementId || !isConnected) {
-      setHistoryData([])
-      setError(null)
-      return
-    }
+    setHistoryData([])
+    setError(null)
+  }, [selectedElementId])
 
-    const fetchHistory = async () => {
-      const client = getClient()
-      if (!client) return
+  const fetchHistory = useCallback(async () => {
+    if (!isObjectSelected || !selectedElementId || !isConnected) return
 
-      setIsLoading(true)
-      setError(null)
+    const client = getClient()
+    if (!client) return
 
-      try {
-        const endTime = new Date().toISOString()
-        const startTime = new Date(Date.now() - 60 * 60 * 1000).toISOString() // 1 hour ago
+    setIsLoading(true)
+    setError(null)
 
-        const result: HistoricalValue = await client.getHistory(
-          selectedElementId,
-          startTime,
-          endTime
-        )
+    try {
+      const endTime = new Date().toISOString()
+      const startTime = new Date(Date.now() - 60 * 60 * 1000).toISOString() // 1 hour ago
 
-        // Extract data points from response - only include points with actual values
-        const points: HistoryDataPoint[] = []
-        if (Array.isArray(result.value)) {
-          for (const item of result.value) {
-            if (item && typeof item === 'object' && 'timestamp' in item) {
-              // Null/undefined values must be preserved for trend charts.
-              // The HistoryTrendChart renders nulls as visual gaps in the SVG path
-              // using M (move-to) commands. Filtering them out here would hide
-              // periods where the server returned no data.
-              // const itemValue = (item as Record<string, unknown>).value
-              // if (itemValue === null || itemValue === undefined) {
-              //   continue
-              // }
-              points.push({
-                timestamp: item.timestamp as string,
-                value: (item as Record<string, unknown>).value,
-                quality: item.quality as string | undefined
-              })
-            }
+      const result: HistoricalValue = await client.getHistory(
+        selectedElementId,
+        startTime,
+        endTime
+      )
+
+      // Extract data points from response
+      const points: HistoryDataPoint[] = []
+      if (Array.isArray(result.value)) {
+        for (const item of result.value) {
+          if (item && typeof item === 'object' && 'timestamp' in item) {
+            points.push({
+              timestamp: item.timestamp as string,
+              value: (item as Record<string, unknown>).value,
+              quality: item.quality as string | undefined
+            })
           }
         }
-
-        // Sort by timestamp
-        points.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-        setHistoryData(points)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch history')
-        setHistoryData([])
-      } finally {
-        setIsLoading(false)
       }
-    }
 
-    fetchHistory()
+      // Sort by timestamp
+      points.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      setHistoryData(points)
+      if (isCollapsed) setIsCollapsed(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch history')
+      setHistoryData([])
+    } finally {
+      setIsLoading(false)
+    }
   }, [selectedElementId, isObjectSelected, isConnected])
-
-  // Auto-expand when data is available
-  useEffect(() => {
-    if (historyData.length > 0 && isCollapsed) {
-      setIsCollapsed(false)
-    }
-  }, [historyData.length])
 
   const handleMouseDown = useCallback(() => {
     if (isCollapsed) return
@@ -189,9 +172,18 @@ export function HistoryPanel() {
               <p className="text-xs text-i3x-error">{error}</p>
             )}
             {!error && historyData.length === 0 && !isLoading && (
-              <p className="text-xs text-i3x-text-muted">
-                {isObjectSelected ? 'No history data available for the past hour.' : 'Select an object to view history.'}
-              </p>
+              <div className="flex items-center gap-2">
+                {isObjectSelected ? (
+                  <button
+                    onClick={fetchHistory}
+                    className="px-3 py-1 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80"
+                  >
+                    Load History
+                  </button>
+                ) : (
+                  <p className="text-xs text-i3x-text-muted">Select an object to view history.</p>
+                )}
+              </div>
             )}
             {!error && historyData.length > 0 && dataType === 'numeric' && (
               <HistoryTrendChart data={historyData} />
