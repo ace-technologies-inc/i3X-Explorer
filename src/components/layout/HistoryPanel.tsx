@@ -59,7 +59,11 @@ export function HistoryPanel() {
         endTime
       )
 
-      // Extract data points from response
+      // Extract data points from response.
+      // Null/undefined values must be preserved for trend charts.
+      // The HistoryTrendChart renders nulls as visual gaps in the SVG path
+      // using M (move-to) commands. Filtering them out here would hide
+      // periods where the server returned no data.
       const points: HistoryDataPoint[] = []
       if (Array.isArray(result.value)) {
         for (const item of result.value) {
