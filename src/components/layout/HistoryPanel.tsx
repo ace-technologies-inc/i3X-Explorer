@@ -33,12 +33,12 @@ export function HistoryPanel() {
     ? (selectedItem.data as ObjectInstance).elementId
     : null
 
-  // Clear history when selection changes
+  // Clear history when selection changes or connection state changes
   useEffect(() => {
     setHistoryData([])
     setError(null)
     setHasLoaded(false)
-  }, [selectedElementId])
+  }, [selectedElementId, isConnected])
 
   const fetchHistory = useCallback(async () => {
     if (!isObjectSelected || !selectedElementId || !isConnected) return
