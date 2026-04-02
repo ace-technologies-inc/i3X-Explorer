@@ -52,7 +52,8 @@ function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
     parentId: (raw.parentId as string | null) ?? null,
     isComposition: raw.isComposition as boolean ?? false,
     namespaceUri: ((raw.namespaceUri ?? metadata.typeNamespaceUri) as string) ?? '',
-    relationships: (metadata.relationships ?? raw.relationships) as Record<string, unknown> | undefined
+    relationships: (metadata.relationships ?? raw.relationships) as Record<string, unknown> | undefined,
+    sourceRelationship: raw.sourceRelationship as string | undefined
   }
 }
 
@@ -192,16 +193,21 @@ export class I3XClient {
     return this.request<RelationshipType[]>('GET', `/relationshiptypes${params}`)
   }
 
-  async getObjects(typeId?: string, includeMetadata = false): Promise<ObjectInstance[]> {
+  async getObjects(typeId?: string, includeMetadata = false, root?: boolean): Promise<ObjectInstance[]> {
     const params = new URLSearchParams()
     // v1 renamed the query param: typeId → typeElementId
     if (typeId) params.set(this.apiVersion === 'v1' ? 'typeElementId' : 'typeId', typeId)
     params.set('includeMetadata', String(includeMetadata))
+    // v1 supports root=true server-side; v0 doesn't have this param so we filter locally below.
+    if (root && this.apiVersion === 'v1') params.set('root', 'true')
     const raw = await this.request<Array<Record<string, unknown>>>('GET', `/objects?${params.toString()}`)
     if (this.apiVersion === 'v1') {
       return raw.map(normalizeV1Object)
     }
-    return raw as unknown as ObjectInstance[]
+    const all = raw as unknown as ObjectInstance[]
+    // v0: simulate root filtering locally — root objects have parentId === '/'
+    if (root) return all.filter(obj => obj.parentId === '/')
+    return all
   }
 
   async getObject(elementId: string, includeMetadata = false): Promise<ObjectInstance> {
@@ -230,9 +236,14 @@ export class I3XClient {
       for (const item of results) {
         if (item.success && Array.isArray(item.result)) {
           for (const envelope of item.result) {
-            // As of commit 27f15c7, each entry is { sourceRelationship, object: {...} }
-            const obj = (envelope.object ?? envelope) as Record<string, unknown>
-            objects.push(normalizeV1Object(obj))
+            // Each entry is { sourceRelationship, object: {...} } (spec commit 51593eb).
+            // sourceRelationship is on the envelope, not the inner object — inject it so
+            // normalizeV1Object can map it onto ObjectInstance.sourceRelationship.
+            const inner = (envelope.object ?? envelope) as Record<string, unknown>
+            const raw = envelope.object
+              ? { ...inner, sourceRelationship: envelope.sourceRelationship }
+              : inner
+            objects.push(normalizeV1Object(raw as Record<string, unknown>))
           }
         }
       }
@@ -255,13 +266,16 @@ export class I3XClient {
       const results = extractV1BulkResults<Record<string, unknown>>(raw)
       const item = results.find(r => r.elementId === elementId && r.success)
       if (item?.result) {
+        // isComposition was removed from v1 value responses (spec commit 32be7d7);
+        // infer it from the presence of the components field instead.
         return {
           elementId,
           value: item.result.value as Record<string, unknown>,
           quality: item.result.quality as string | undefined,
           timestamp: item.result.timestamp as string | undefined,
           parentId: null,
-          isComposition: item.result.isComposition as boolean ?? false,
+          isComposition: 'components' in item.result,
+          components: item.result.components as LastKnownValue['components'],
           namespaceUri: ''
         } as LastKnownValue
       }
@@ -291,7 +305,8 @@ export class I3XClient {
           quality: r.result.quality as string | undefined,
           timestamp: r.result.timestamp as string | undefined,
           parentId: null,
-          isComposition: r.result.isComposition as boolean ?? false,
+          isComposition: 'components' in r.result,
+          components: r.result.components as LastKnownValue['components'],
           namespaceUri: ''
         } as LastKnownValue))
     }
@@ -321,19 +336,18 @@ export class I3XClient {
       value: [],
       timestamp: new Date().toISOString(),
       parentId: null,
-      isComposition: false,
       namespaceUri: ''
     }
     if (this.apiVersion === 'v1') {
-      // v1: bulk results; history in result.values (not data)
+      // v1: bulk results; history in result.values (not data).
+      // isComposition was removed from v1 history responses (spec commit 32be7d7).
       const raw = await this.request<unknown>(
         'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
       )
-      const results = extractV1BulkResults<{ isComposition: boolean; values: Record<string, unknown>[] }>(raw)
+      const results = extractV1BulkResults<{ values: Record<string, unknown>[] }>(raw)
       const item = results.find(r => r.elementId === elementId && r.success)
       return {
         ...defaultValue,
-        isComposition: item?.result?.isComposition ?? false,
         value: item?.result?.values ?? []
       }
     }
