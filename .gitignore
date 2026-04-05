@@ -34,6 +34,9 @@ lerna-debug.log*
 
 # Environment
 scripts/set-apple-vars.sh
+scripts/set-azure-vars.sh
+scripts/set-azure-vars.ps1
+scripts/.azure-signing/
 .env
 .env.local
 .env.development.local

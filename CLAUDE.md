@@ -93,6 +93,31 @@ Also requires a **Developer ID Application** certificate (not "Mac Installer Dis
 
 `build-all.sh` sources this file automatically. If absent or vars unset, the build completes unsigned with a warning. Notarization logic lives in `scripts/notarize.cjs` (afterSign hook).
 
+### Windows Signing
+
+Windows signing uses **Azure Trusted Signing** (Microsoft-managed CA, ~$10/month). It fully suppresses the SmartScreen "Unknown publisher" warning. Signing must be done on a Windows machine — `signtool.exe` (a Windows-only binary) does the Authenticode embedding; there is no viable cross-platform path for this step.
+
+**To sign a Windows build**, run on a Windows box:
+```powershell
+.\scripts\build-sign-win.ps1
+```
+
+The script builds the installer, auto-downloads the Azure Trusted Signing dlib from NuGet on first run (cached in `scripts\.azure-signing\`, git-ignored), then signs all `.exe` files.
+
+Credentials go in `scripts\set-azure-vars.ps1` (git-ignored; template at `scripts\set-azure-vars.example.ps1`):
+```powershell
+$env:AZURE_TENANT_ID                = "..."   # Entra ID → Overview → Tenant ID
+$env:AZURE_CLIENT_ID                = "..."   # Entra ID → App registrations → your app → Application (client) ID
+$env:AZURE_CLIENT_SECRET            = "..."   # same app → Certificates & secrets → Client secrets → Value
+$env:AZURE_TRUSTED_SIGNING_ENDPOINT = "..."   # Trusted Signing account → Overview → URI
+$env:AZURE_TRUSTED_SIGNING_ACCOUNT  = "..."   # Trusted Signing account → Overview → Name
+$env:AZURE_TRUSTED_SIGNING_PROFILE  = "..."   # Trusted Signing account → Certificate profiles → profile name
+```
+
+The app registration needs the **Trusted Signing Certificate Profile Signer** role assigned on the signing account (Azure portal → signing account → Access control (IAM)).
+
+Full setup walkthrough: see `WINDOWS-SIGNING.md`.
+
 **Output:** `release/{version}/`
 
 | Platform | Artifacts |
