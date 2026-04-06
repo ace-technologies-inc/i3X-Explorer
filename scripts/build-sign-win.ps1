@@ -218,7 +218,7 @@ $MetadataFile = Join-Path $DlibDir 'metadata.json'
     Endpoint                 = $env:AZURE_TRUSTED_SIGNING_ENDPOINT
     CodeSigningAccountName   = $env:AZURE_TRUSTED_SIGNING_ACCOUNT
     CertificateProfileName   = $env:AZURE_TRUSTED_SIGNING_PROFILE
-} | ConvertTo-Json | Set-Content -Path $MetadataFile -Encoding UTF8
+} | ConvertTo-Json | ForEach-Object { [System.IO.File]::WriteAllText($MetadataFile, $_, (New-Object System.Text.UTF8Encoding $false)) }
 
 $ReleaseDir = Join-Path $ProjectDir "release\$version"
 $exeFiles   = Get-ChildItem -Path $ReleaseDir -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue
