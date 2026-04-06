@@ -135,10 +135,10 @@ To produce signed Windows builds (which fully suppress the SmartScreen "Unknown 
 This script builds the app, generates icons, and signs all `.exe` files using **Azure Trusted Signing**. It requires:
 
 - [ImageMagick](https://imagemagick.org/script/download.php#windows) installed and on PATH
+   - `winget install -e --id ImageMagick.ImageMagick` from PowerShell
 - [Windows Developer Mode](ms-settings:developers) enabled (or run as Administrator)
 - Azure Trusted Signing credentials in `scripts\set-azure-vars.ps1` (git-ignored)
-
-See [WINDOWS-SIGNING.md](WINDOWS-SIGNING.md) for full Azure setup instructions.
+   - See [WINDOWS-SIGNING.md](WINDOWS-SIGNING.md) for full Azure setup instructions.
 
 If you don't have signing set up, unsigned builds still work — users just need to click **More info → Run anyway** in the SmartScreen dialog.
 

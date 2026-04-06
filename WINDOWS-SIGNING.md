@@ -37,7 +37,29 @@ either:
 
 Download from https://nodejs.org (LTS build).
 
-### 3. PowerShell execution policy
+### 3. ImageMagick (for icon generation)
+
+The script runs `generate-icons.ps1` automatically before building to produce
+`build/icon.ico`. Install ImageMagick and make sure it is on your PATH:
+
+```powershell
+winget install -e --id ImageMagick.ImageMagick
+```
+
+Then open a new PowerShell window so the updated PATH takes effect.
+
+### 4. Windows Developer Mode (for symlink support)
+
+`electron-builder` downloads a toolkit that contains macOS symlinks. Extracting
+them on Windows requires either Developer Mode or Administrator privileges.
+Developer Mode is easier and persists across runs:
+
+> **Settings → Privacy & Security → For developers → Developer Mode → On**
+
+The build script will detect this and print a clear error if neither condition
+is met.
+
+### 5. PowerShell execution policy
 
 Run once in an elevated PowerShell window:
 
@@ -219,6 +241,9 @@ Status SignerCertificate
 | `signtool.exe` not found | Windows SDK not installed — see Prerequisites |
 | Signature shows as valid but SmartScreen still warns | Normal for brand-new accounts; reputation builds over ~days/weeks of signed releases being distributed |
 | `The parameter is incorrect` from signtool | dlib version mismatch — delete `scripts\.azure-signing\` and let the script re-download |
+| `Cannot create symbolic link: A required privilege is not held` | Developer Mode is not enabled and script is not running as Administrator — see Prerequisites §4 |
+| `'0xEF' is an invalid start of a value` from signtool | `metadata.json` was written with a UTF-8 BOM — ensure you are running the latest version of the build script |
+| `magick: command not found` / icon not generated | ImageMagick not installed or not on PATH — see Prerequisites §3; open a new shell after installing |
 
 ---
 
