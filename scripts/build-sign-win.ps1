@@ -1,4 +1,4 @@
-﻿# build-sign-win.ps1
+# build-sign-win.ps1
 # Build i3X Explorer for Windows and sign with Azure Trusted Signing.
 #
 # Usage (from project root):
@@ -71,7 +71,7 @@ try {
     $npmVersion = (npm --version 2>$null)
     Write-Ok "npm v$npmVersion"
 } catch {
-    Abort "npm not found. It should come with Node.js — reinstall Node from https://nodejs.org."
+    Abort "npm not found. It should come with Node.js - reinstall Node from https://nodejs.org."
 }
 
 # ── Check: signtool.exe ───────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ $DlibVersion = '1.0.60'                       # update when new versions ship
 $DlibDll     = Join-Path $DlibDir 'bin\x64\Azure.CodeSigning.Dlib.dll'
 
 if (-not (Test-Path $DlibDll)) {
-    Write-Warn "Azure Trusted Signing dlib not cached — downloading from NuGet..."
+    Write-Warn "Azure Trusted Signing dlib not cached - downloading from NuGet..."
 
     New-Item -ItemType Directory -Force -Path $DlibDir | Out-Null
     $nupkgUrl  = "https://api.nuget.org/v3-flatcontainer/$($DlibPackage.ToLower())/$DlibVersion/$($DlibPackage.ToLower()).$DlibVersion.nupkg"
@@ -137,7 +137,7 @@ if (-not (Test-Path $DlibDll)) {
 }
 
 if (-not (Test-Path $DlibDll)) {
-    Abort "dlib DLL not found at expected path after extraction: $DlibDll`nThe NuGet package layout may have changed — inspect $DlibDir manually."
+    Abort "dlib DLL not found at expected path after extraction: $DlibDll`nThe NuGet package layout may have changed - inspect $DlibDir manually."
 }
 
 Write-Ok "Azure Trusted Signing dlib: $DlibVersion"
@@ -202,7 +202,7 @@ $ReleaseDir = Join-Path $ProjectDir "release\$version"
 $exeFiles   = Get-ChildItem -Path $ReleaseDir -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue
 
 if ($exeFiles.Count -eq 0) {
-    Abort "No .exe files found in $ReleaseDir — did the build succeed?"
+    Abort "No .exe files found in $ReleaseDir - did the build succeed?"
 }
 
 $allSigned = $true

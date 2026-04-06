@@ -177,6 +177,7 @@ This file is listed in `.gitignore` and will not be committed.
 From the project root in PowerShell:
 
 ```powershell
+npm install
 .\scripts\build-sign-win.ps1
 ```
 
