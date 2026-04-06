@@ -60,6 +60,8 @@ build/icon.png
 build/icon.ico
 build/icon.icns
 build/icon-*.png
+build/icons/*
+!build/icons/icon-1024.png
 build/icon.iconset/
 build/*.png
 !build/icon-1024.png
@@ -67,4 +69,3 @@ build/*.png
 # Package manager locks (optional - uncomment if you want to ignore)
 # package-lock.json
 # yarn.lock
-build/icons/16x16.png
