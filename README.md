@@ -82,10 +82,10 @@ This starts a Vite dev server at http://localhost:5173/ where you can access the
 
 ### Build Commands
 
-Note: The best environment to build for all platforms is a modern macOS.
+Note: The best environment to build for all platforms is a modern macOS, however to sign the Windows binaries, you will have to build on Windows.
 
 ```bash
-# Best way to build
+# Best way to build (mac/linux/all)
 ./scripts/build-all.sh [mac|win|linux|all]
 
 # Manually Build for current platform
@@ -93,12 +93,14 @@ npm run build
 
 # Manually Build Platform-specific
 npm run build:mac          # macOS (Intel + Apple Silicon)
-npm run build:win          # Windows (x64, x86, portable)
+npm run build:win          # Windows (x64, x86, portable) — unsigned
 npm run build:linux        # Linux (AppImage x64 + ARM64)
 npm run build:all          # All platforms
 ```
 
 Build artifacts are output to `release/{version}/`.
+
+> **Note:** `build-all.sh win` and `npm run build:win` produce unsigned Windows builds. For signed Windows builds (required to suppress SmartScreen), use the dedicated PowerShell script on a Windows machine — see [Windows Signing](#windows-signing) below.
 
 ### macOS Notarization
 
@@ -122,24 +124,37 @@ To produce notarized macOS builds (required for arm64 downloads to open without 
 
 If `set-apple-vars.sh` is absent or the env vars are unset, the build completes unsigned with a warning.
 
-### Windows SmartScreen Warning
+### Windows Signing
 
-When downloading the Windows installer, SmartScreen may show a warning that the app is unrecognized. This is expected for unsigned builds. To proceed:
+To produce signed Windows builds (which fully suppress the SmartScreen "Unknown publisher" warning), run on a **Windows machine**:
 
-1. Click **More info** in the SmartScreen dialog
-2. Click **Run anyway**
+```powershell
+.\scripts\build-sign-win.ps1
+```
 
-This warning appears because the installer is not yet signed with a Windows code signing certificate. It does not indicate the app is harmful.
+This script builds the app, generates icons, and signs all `.exe` files using **Azure Trusted Signing**. It requires:
+
+- [ImageMagick](https://imagemagick.org/script/download.php#windows) installed and on PATH
+- [Windows Developer Mode](ms-settings:developers) enabled (or run as Administrator)
+- Azure Trusted Signing credentials in `scripts\set-azure-vars.ps1` (git-ignored)
+
+See [WINDOWS-SIGNING.md](WINDOWS-SIGNING.md) for full Azure setup instructions.
+
+If you don't have signing set up, unsigned builds still work — users just need to click **More info → Run anyway** in the SmartScreen dialog.
 
 ### Updating the Icon
 
+**macOS / Linux** (requires ImageMagick: `brew install imagemagick`):
 ```bash
-# Requires ImageMagick: brew install imagemagick
 ./scripts/generate-icons.sh /path/to/your/icon.png
-
-# Then rebuild
-npm run build
 ```
+
+**Windows** (requires [ImageMagick for Windows](https://imagemagick.org/script/download.php#windows)):
+```powershell
+.\scripts\generate-icons.ps1 path\to\your\icon.png
+```
+
+Both scripts write to `build/` and are called automatically by the respective build scripts. After updating icons, rebuild the app.
 
 ## Usage
 
