@@ -197,6 +197,9 @@ Write-Ok "Azure credentials present"
 $version = node --% -p "require('./package.json').version"
 Write-Header "Building i3X Explorer v$version (Windows)"
 
+& (Join-Path $ScriptDir 'generate-icons.ps1')
+if ($LASTEXITCODE -ne 0) { Abort "Icon generation failed." }
+
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist, dist-electron
 
 npx vite build
