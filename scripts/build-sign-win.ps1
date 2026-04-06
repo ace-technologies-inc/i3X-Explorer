@@ -176,11 +176,12 @@ Write-Ok "Azure credentials present"
 $version = node --% -p "require('./package.json').version"
 Write-Header "Building i3X Explorer v$version (Windows)"
 
-npm run clean
-if ($LASTEXITCODE -ne 0) { Abort "npm run clean failed." }
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist, dist-electron
 
-npm run build:vite
+npx vite build
 if ($LASTEXITCODE -ne 0) { Abort "Vite build failed." }
+
+Copy-Item electron\preload.cjs dist-electron\preload.cjs
 
 $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'    # suppress electron-builder cert search
 npx electron-builder --win --publish never
