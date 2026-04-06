@@ -15,6 +15,27 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# ── Symlink privilege check ────────────────────────────────────────────────────
+# electron-builder extracts winCodeSign which contains macOS symlinks.
+# Windows requires either admin rights or Developer Mode to create symlinks.
+
+$isAdmin     = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$devModeKey  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+$devModeOn   = (Get-ItemProperty -Path $devModeKey -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense -eq 1
+
+if (-not $isAdmin -and -not $devModeOn) {
+    Write-Host ""
+    Write-Host "  [!!]  Symlink privileges required" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  electron-builder downloads a toolkit that contains macOS symlinks." -ForegroundColor White
+    Write-Host "  Windows needs one of the following to extract them:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    A) Run this script as Administrator (right-click PowerShell -> Run as administrator)" -ForegroundColor Cyan
+    Write-Host "    B) Enable Developer Mode: Settings -> Privacy & Security -> For developers -> Developer Mode" -ForegroundColor Cyan
+    Write-Host ""
+    exit 1
+}
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
