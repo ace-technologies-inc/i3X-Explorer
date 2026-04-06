@@ -1,4 +1,4 @@
-# build-sign-win.ps1
+﻿# build-sign-win.ps1
 # Build i3X Explorer for Windows and sign with Azure Trusted Signing.
 #
 # Usage (from project root):
