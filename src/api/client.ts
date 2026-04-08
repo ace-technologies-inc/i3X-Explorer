@@ -197,7 +197,8 @@ export class I3XClient {
     const params = new URLSearchParams()
     // v1 renamed the query param: typeId → typeElementId
     if (typeId) params.set(this.apiVersion === 'v1' ? 'typeElementId' : 'typeId', typeId)
-    params.set('includeMetadata', String(includeMetadata))
+    // v1: always request metadata so namespaceUri (metadata.typeNamespaceUri) is present
+    params.set('includeMetadata', String(this.apiVersion === 'v1' ? true : includeMetadata))
     // v1 supports root=true server-side; v0 doesn't have this param so we filter locally below.
     if (root && this.apiVersion === 'v1') params.set('root', 'true')
     const raw = await this.request<Array<Record<string, unknown>>>('GET', `/objects?${params.toString()}`)
@@ -211,7 +212,8 @@ export class I3XClient {
   }
 
   async getObject(elementId: string, includeMetadata = false): Promise<ObjectInstance> {
-    const params = `?includeMetadata=${includeMetadata}`
+    // v1: always request metadata so namespaceUri (metadata.typeNamespaceUri) is present
+    const params = `?includeMetadata=${this.apiVersion === 'v1' ? true : includeMetadata}`
     const raw = await this.request<Record<string, unknown>>('GET', `/objects/${encodeURIComponent(elementId)}${params}`)
     if (this.apiVersion === 'v1') {
       return normalizeV1Object(raw)
@@ -226,10 +228,11 @@ export class I3XClient {
   ): Promise<ObjectInstance[]> {
     if (this.apiVersion === 'v1') {
       // v1: subscriptionId in body, camelCase field, bulk results response
+      // Always include metadata so namespaceUri (metadata.typeNamespaceUri) is populated
       const raw = await this.request<unknown>('POST', '/objects/related', {
         elementIds: [elementId],
         relationshipType,
-        includeMetadata
+        includeMetadata: true
       })
       const results = extractV1BulkResults<Array<Record<string, unknown>>>(raw)
       const objects: ObjectInstance[] = []
