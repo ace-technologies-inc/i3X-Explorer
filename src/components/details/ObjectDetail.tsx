@@ -87,6 +87,15 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
         </button>
       </div>
 
+      {object.description && (
+        <div>
+          <label className="block text-xs text-i3x-text-muted mb-1">Description</label>
+          <p className="px-3 py-2 bg-i3x-surface rounded text-sm text-i3x-text">
+            {object.description}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs text-i3x-text-muted mb-1">Element ID</label>
@@ -109,9 +118,17 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
         <div>
           <label className="block text-xs text-i3x-text-muted mb-1">Namespace URI</label>
           <code className="block px-3 py-2 bg-i3x-surface rounded text-sm text-i3x-text break-all">
-            {object.namespaceUri}
+            {object.namespaceUri || '—'}
           </code>
         </div>
+        {object.metadata?.sourceTypeId != null && (
+          <div>
+            <label className="block text-xs text-i3x-text-muted mb-1">Source Type ID</label>
+            <code className="block px-3 py-2 bg-i3x-surface rounded text-sm text-i3x-text break-all">
+              {String(object.metadata.sourceTypeId)}
+            </code>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-4">
@@ -121,6 +138,14 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
             {object.isComposition ? 'Yes' : 'No'}
           </span>
         </div>
+        {object.isExtended !== undefined && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-i3x-text-muted">Extended:</span>
+            <span className={`text-xs ${object.isExtended ? 'text-i3x-success' : 'text-i3x-secondary'}`}>
+              {object.isExtended ? 'Yes' : 'No'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Relationship Graph and Current Value - responsive stack */}
@@ -169,14 +194,26 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
           </span>
         </div>
         {isRawDataExpanded && (
-          <div className="border-t border-i3x-border p-3">
+          <div className="border-t border-i3x-border p-3 space-y-3">
             {object.relationships && (
-              <div className="mb-3">
+              <div>
                 <label className="block text-xs text-i3x-text-muted mb-1">Relationships</label>
                 <JsonViewer data={object.relationships} />
               </div>
             )}
-            <JsonViewer data={object} />
+            {object.metadata && (() => {
+              const { relationships: _r, typeNamespaceUri: _ns, description: _d, sourceTypeId: _st, ...rest } = object.metadata as Record<string, unknown>
+              return Object.keys(rest).length > 0 ? (
+                <div>
+                  <label className="block text-xs text-i3x-text-muted mb-1">Metadata</label>
+                  <JsonViewer data={rest} />
+                </div>
+              ) : null
+            })()}
+            <div>
+              <label className="block text-xs text-i3x-text-muted mb-1">Raw Object</label>
+              <JsonViewer data={object} />
+            </div>
           </div>
         )}
       </div>

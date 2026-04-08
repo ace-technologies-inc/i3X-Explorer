@@ -30,6 +30,8 @@ interface ExplorerState {
   selectedItem: SelectedItem | null
   isLoading: boolean
   searchQuery: string
+  pollIntervalMs: number
+  manualRefreshTick: number
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
@@ -43,6 +45,8 @@ interface ExplorerState {
   selectItem: (item: SelectedItem | null) => void
   setLoading: (loading: boolean) => void
   setSearchQuery: (query: string) => void
+  setPollIntervalMs: (ms: number) => void
+  triggerManualRefresh: () => void
   reset: () => void
 }
 
@@ -57,6 +61,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   selectedItem: null,
   isLoading: false,
   searchQuery: '',
+  pollIntervalMs: 30_000,
+  manualRefreshTick: 0,
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({ objectTypes: types }),
@@ -106,6 +112,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   selectItem: (item) => set({ selectedItem: item }),
   setLoading: (loading) => set({ isLoading: loading }),
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setPollIntervalMs: (ms) => set({ pollIntervalMs: ms }),
+  triggerManualRefresh: () => set(state => ({ manualRefreshTick: state.manualRefreshTick + 1 })),
 
   reset: () => set({
     namespaces: [],

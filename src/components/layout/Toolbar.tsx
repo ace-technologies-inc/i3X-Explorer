@@ -13,10 +13,18 @@ function getInitialTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+const POLL_OPTIONS = [
+  { label: 'Refresh every 15 seconds', ms: 15_000 },
+  { label: 'Refresh every 30 seconds', ms: 30_000 },
+  { label: 'Refresh every 60 seconds', ms: 60_000 },
+  { label: 'No automatic refresh', ms: 0 },
+]
+
 export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [apiVersion, setApiVersion] = useState<ApiVersion | null>(null)
   const [showV0Warning, setShowV0Warning] = useState(false)
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -40,7 +48,7 @@ export function Toolbar() {
     disconnect: disconnectStore
   } = useConnectionStore()
 
-  const { setNamespaces, setObjectTypes, setLoading, reset: resetExplorer } = useExplorerStore()
+  const { setNamespaces, setObjectTypes, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh } = useExplorerStore()
   const { clearAll: clearSubscriptions } = useSubscriptionsStore()
 
   const handleConnect = async () => {
@@ -137,14 +145,52 @@ export function Toolbar() {
         </button>
       </div>
 
-      {/* Theme toggle */}
-      <button
-        onClick={toggleTheme}
-        title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base no-drag"
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
+      {/* Settings gear + theme toggle */}
+      <div className="flex items-center no-drag">
+        <div className="relative">
+          <button
+            onClick={() => setShowSettingsMenu(m => !m)}
+            title="Settings"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base"
+          >
+            ⚙️
+          </button>
+          {showSettingsMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowSettingsMenu(false)} />
+              <div className="absolute right-0 top-9 z-50 bg-i3x-surface border border-i3x-border rounded-lg shadow-xl w-56 py-1">
+                {POLL_OPTIONS.map(opt => (
+                  <button
+                    key={opt.ms}
+                    onClick={() => { setPollIntervalMs(opt.ms); setShowSettingsMenu(false) }}
+                    className={`w-full text-left px-3 py-2 text-xs hover:bg-i3x-bg transition-colors flex items-center justify-between ${
+                      pollIntervalMs === opt.ms ? 'text-i3x-primary' : 'text-i3x-text'
+                    }`}
+                  >
+                    {opt.label}
+                    {pollIntervalMs === opt.ms && <span>✓</span>}
+                  </button>
+                ))}
+                <div className="border-t border-i3x-border my-1" />
+                <button
+                  onClick={() => { triggerManualRefresh(); setShowSettingsMenu(false) }}
+                  disabled={!isConnected}
+                  className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Refresh now
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        <button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base"
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
+      </div>
 
       {/* Connection status */}
       <div className="flex items-center gap-2">

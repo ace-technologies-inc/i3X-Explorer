@@ -10,6 +10,10 @@ export interface ObjectType {
   displayName: string
   namespaceUri: string
   schema: Record<string, unknown>
+  // v1 additions
+  sourceTypeId?: string
+  version?: string | null
+  related?: { relationshipType: string; types?: string[] } | null
 }
 
 // RFC 4.1.4/4.1.5 - Relationship Type
@@ -18,6 +22,8 @@ export interface RelationshipType {
   displayName: string
   namespaceUri: string
   reverseOf: string
+  // v1 addition
+  relationshipId?: string
 }
 
 // RFC 3.1.1 - Object Instance (Minimal)
@@ -28,6 +34,9 @@ export interface ObjectInstanceMinimal {
   parentId: string | null
   isComposition: boolean
   namespaceUri: string
+  // v1 additions
+  isExtended?: boolean
+  description?: string
 }
 
 // RFC 3.1.1 + 3.1.2 - Object Instance (Full)
@@ -35,6 +44,8 @@ export interface ObjectInstance extends ObjectInstanceMinimal {
   relationships?: Record<string, unknown>
   // Populated when the object is returned via POST /objects/related (v1 envelope field)
   sourceRelationship?: string
+  // v1: full metadata object passthrough (sourceTypeId, system, etc.)
+  metadata?: Record<string, unknown>
 }
 
 // RFC 4.2.1.1 - Last Known Value

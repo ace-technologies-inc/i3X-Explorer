@@ -50,10 +50,13 @@ function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
     displayName: raw.displayName as string,
     typeId: ((raw.typeElementId ?? raw.typeId) as string) ?? '',
     parentId: (raw.parentId as string | null) ?? null,
-    isComposition: raw.isComposition as boolean ?? false,
+    isComposition: (raw.isComposition as boolean) ?? false,
+    isExtended: (raw.isExtended as boolean) ?? false,
     namespaceUri: ((raw.namespaceUri ?? metadata.typeNamespaceUri) as string) ?? '',
+    description: (metadata.description as string) ?? undefined,
     relationships: (metadata.relationships ?? raw.relationships) as Record<string, unknown> | undefined,
-    sourceRelationship: raw.sourceRelationship as string | undefined
+    sourceRelationship: raw.sourceRelationship as string | undefined,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined
   }
 }
 
