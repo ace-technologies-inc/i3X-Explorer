@@ -137,12 +137,14 @@ export function Toolbar() {
             Disconnect
           </button>
         )}
-        <button
-          onClick={() => window.electronAPI?.openDevTools()}
-          className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors"
-        >
-          Developer
-        </button>
+        {window.electronAPI && (
+          <button
+            onClick={() => window.electronAPI?.openDevTools()}
+            className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors"
+          >
+            Developer
+          </button>
+        )}
       </div>
 
       {/* Settings gear + theme toggle */}

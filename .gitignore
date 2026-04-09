@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 dist-electron/
+dist-web/
 release/
 
 # Electron builder cache
@@ -69,3 +70,5 @@ build/*.png
 # Package manager locks (optional - uncomment if you want to ignore)
 # package-lock.json
 # yarn.lock
+scripts/nginx-web.conf
+scripts/i3x-explorer-web.service

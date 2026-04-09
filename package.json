@@ -19,7 +19,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "clean": "rm -rf dist dist-electron",
+    "dev:web": "vite --config vite.web.config.ts",
+    "clean": "rm -rf dist dist-electron dist-web",
     "build": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json",
     "build:vite": "vite build && cp electron/preload.cjs dist-electron/preload.cjs",
     "build:mac": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac",
@@ -29,7 +30,9 @@
     "build:win": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --win",
     "build:linux": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --linux",
     "build:all": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --win --linux",
+    "build:web": "vite build --config vite.web.config.ts",
     "preview": "vite preview",
+    "preview:web": "vite preview --config vite.web.config.ts",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit"
   },
