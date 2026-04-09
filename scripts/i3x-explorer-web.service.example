@@ -1,0 +1,22 @@
+[Unit]
+Description=i3X Explorer web app build & deploy
+After=network.target
+# If your I3X API server has its own service, add it here:
+# After=network.target i3x-api.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=YOUR_USER
+WorkingDirectory=/path/to/i3X-Explorer
+
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+ExecStart=/path/to/i3X-Explorer/scripts/deploy-web.sh
+
+# Allow the deploy script to reload nginx without a password prompt.
+# Add this line to /etc/sudoers.d/i3x-explorer:
+#   YOUR_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload nginx
+
+[Install]
+WantedBy=multi-user.target
