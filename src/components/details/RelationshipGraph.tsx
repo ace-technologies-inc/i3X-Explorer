@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { ObjectInstance } from '../../api/types'
 import { getClient } from '../../api/client'
+import { useExplorerStore } from '../../stores/explorer'
 
 interface RelationshipGraphProps {
   object: ObjectInstance
@@ -18,7 +19,7 @@ interface RelatedObject {
 // Layout constants
 const BOX_WIDTH = 140
 const BOX_HEIGHT = 50
-const CENTER_X = 300
+const CENTER_X = 325
 const CENTER_Y = 200
 const RADIUS = 150
 
@@ -40,6 +41,45 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
   const [relatedObjects, setRelatedObjects] = useState<RelatedObject[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { allObjects, selectItem, expandNode, setAllObjects, setHierarchicalRoots } = useExplorerStore()
+
+  const handleNodeClick = async (related: RelatedObject) => {
+    const client = getClient()
+    if (!client) return
+
+    // Fetch full object if not already in the store
+    const cached = allObjects.find(o => o.elementId === related.elementId)
+    const obj: ObjectInstance = cached ?? await client.getObject(related.elementId)
+
+    // Select the item — use the hier: prefix so the hierarchy tree node highlights
+    selectItem({ type: 'object', id: `hier:${obj.elementId}`, data: obj })
+
+    // Ensure allObjects and hierarchicalRoots are loaded before expanding the tree
+    let knownObjects = allObjects
+    if (knownObjects.length === 0) {
+      const [fetched, roots] = await Promise.all([
+        client.getObjects(),
+        client.getObjects(undefined, false, true)
+      ])
+      setAllObjects(fetched)
+      setHierarchicalRoots(roots)
+      knownObjects = fetched
+    }
+
+    // Walk parentId chain to build root-first ancestor list
+    const ancestorIds: string[] = []
+    let currentId: string | null | undefined = obj.parentId
+    const visited = new Set<string>()
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId)
+      ancestorIds.unshift(currentId)
+      currentId = knownObjects.find(o => o.elementId === currentId)?.parentId
+    }
+
+    // Expand the Hierarchy folder and every ancestor so the target node is visible
+    expandNode('folder:hierarchical')
+    ancestorIds.forEach(id => expandNode(`hier:${id}`))
+  }
 
   useEffect(() => {
     loadRelationships()
@@ -116,9 +156,9 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
   return (
     <div className="w-full overflow-auto">
       <svg
-        width="600"
-        height="415"
-        style={{ minWidth: '600px', backgroundColor: COLORS.surface, borderRadius: '6px' }}
+        width="650"
+        height="465"
+        style={{ minWidth: '650px', backgroundColor: COLORS.surface, borderRadius: '6px' }}
       >
         {/* Connection lines */}
         {positions.map((pos, index) => {
@@ -189,6 +229,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
               key={`${related.elementId}-${related.relationshipType}`}
               transform={`translate(${pos.x - BOX_WIDTH / 2}, ${pos.y - BOX_HEIGHT / 2})`}
               style={{ cursor: 'pointer' }}
+              onClick={() => handleNodeClick(related)}
             >
               <rect
                 width={BOX_WIDTH}
@@ -223,7 +264,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
         })}
 
         {/* Legend */}
-        <g transform="translate(10, 355)">
+        <g transform="translate(10, 405)">
           <line x1="0" y1="10" x2="25" y2="10" stroke={COLORS.warning} strokeWidth="2" />
           <text x="30" y="14" fill={COLORS.textMuted} fontSize="10">Parent/ComponentOf</text>
 
@@ -236,7 +277,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
           <line x1="295" y1="10" x2="320" y2="10" stroke={COLORS.border} strokeWidth="2" strokeDasharray="5,5" />
           <text x="325" y="14" fill={COLORS.textMuted} fontSize="10">Other</text>
         </g>
-        <g transform="translate(10, 378)">
+        <g transform="translate(10, 428)">
           <rect x="0" y="2" width="25" height="12" rx="2" fill={COLORS.bg} stroke={COLORS.border} strokeWidth="1.5" strokeDasharray="4,2" />
           <text x="30" y="14" fill={COLORS.textMuted} fontSize="10">Composition</text>
           <rect x="110" y="2" width="25" height="12" rx="2" fill={COLORS.surface} stroke={COLORS.border} strokeWidth="1.5" />
