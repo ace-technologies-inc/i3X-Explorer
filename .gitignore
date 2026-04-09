@@ -72,3 +72,4 @@ build/*.png
 # yarn.lock
 scripts/nginx-web.conf
 scripts/i3x-explorer-web.service
+config.local.json

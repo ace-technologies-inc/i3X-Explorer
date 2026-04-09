@@ -15,6 +15,14 @@ npm ci --prefer-offline
 echo "[i3x] Building web app..."
 npm run build:web
 
+# Restore server-local config.json if one exists outside dist-web.
+# Create /home/cesmii/repos/i3X-Explorer/config.local.json to override defaults.
+CONFIG_LOCAL="$REPO_DIR/config.local.json"
+if [ -f "$CONFIG_LOCAL" ]; then
+  echo "[i3x] Applying config.local.json..."
+  cp "$CONFIG_LOCAL" "$REPO_DIR/dist-web/config.json"
+fi
+
 echo "[i3x] Build complete → $REPO_DIR/dist-web"
 
 # Reload nginx if running (requires passwordless sudo for this command,
