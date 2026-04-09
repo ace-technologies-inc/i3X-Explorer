@@ -21,7 +21,7 @@ async function init() {
         const store = useConnectionStore.getState()
         if (config.serverUrl) store.setServerUrl(config.serverUrl)
         if (config.recentUrls?.length) {
-          config.recentUrls.forEach(url => store.addRecentUrl(url))
+          useConnectionStore.setState({ recentUrls: config.recentUrls })
         }
       }
     }
