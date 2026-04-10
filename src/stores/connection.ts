@@ -83,7 +83,7 @@ interface ConnectionState {
 export const useConnectionStore = create<ConnectionState>()(
   persist(
     (set, get) => ({
-      serverUrl: 'https://api.i3x.dev/v0',
+      serverUrl: 'https://api.i3x.dev/v1',
       credentials: null,
       savedCredentials: {},
       isConnected: false,

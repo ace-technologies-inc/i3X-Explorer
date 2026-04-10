@@ -159,7 +159,7 @@ Both scripts write to `build/` and are called automatically by the respective bu
 ## Usage
 
 1. Launch i3X Explorer
-2. Enter the server URL (default: `https://api.i3x.dev/v0`)
+2. Enter the server URL (default: `https://api.i3x.dev/v1`)
 3. Click **Connect**
 4. Browse the tree to explore namespaces, object types, and objects
 5. Click any object to view its details and current value

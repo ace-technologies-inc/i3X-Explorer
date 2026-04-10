@@ -136,7 +136,7 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 
 ## Features
 
-- Connect to I3X servers (default: https://api.i3x.dev/v0)
+- Connect to I3X servers (default: https://api.i3x.dev/v1)
 - Browse hierarchical tree: Namespaces → ObjectTypes → Objects
 - Browse flat Objects list (lazy-loaded)
 - Expand compositional objects to see children
@@ -150,7 +150,7 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 
 ## Key Resources
 
-- **API Documentation**: https://api.i3x.dev/v0/docs (OpenAPI spec at /openapi.json)
+- **API Documentation**: https://api.i3x.dev/v1/docs (OpenAPI spec at /openapi.json)
 - **RFC Specification**: https://github.com/cesmii/API/blob/main/RFC%20for%20Contextualized%20Manufacturing%20Information%20API.md
 - **Reference Implementation**: ~/Projects/API/demo (Python FastAPI server + test client)
 
