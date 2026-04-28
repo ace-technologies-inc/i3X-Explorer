@@ -3,6 +3,7 @@ import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { createClient, destroyClient, getClient, type ApiVersion } from '../../api/client'
+import { SearchModal } from '../search/SearchModal'
 import iconPng from '/icon.png'
 
 type Theme = 'light' | 'dark'
@@ -25,6 +26,7 @@ export function Toolbar() {
   const [apiVersion, setApiVersion] = useState<ApiVersion | null>(null)
   const [showV0Warning, setShowV0Warning] = useState(false)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -50,6 +52,17 @@ export function Toolbar() {
 
   const { setNamespaces, setObjectTypes, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh } = useExplorerStore()
   const { clearAll: clearSubscriptions } = useSubscriptionsStore()
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        if (isConnected) setShowSearch(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isConnected])
 
   const handleConnect = async () => {
     setConnecting(true)
@@ -91,11 +104,11 @@ export function Toolbar() {
     }
   }
 
-  const handleDisconnect = () => {
-    // Clean up subscriptions
+  const handleDisconnect = async () => {
     const client = getClient()
     if (client) {
-      // TODO: Clean up active subscriptions
+      const ids = Array.from(useSubscriptionsStore.getState().subscriptions.keys())
+      await Promise.allSettled(ids.map(id => client.deleteSubscription(id)))
     }
 
     destroyClient()
@@ -147,8 +160,16 @@ export function Toolbar() {
         )}
       </div>
 
-      {/* Settings gear + theme toggle */}
+      {/* Settings gear + search + theme toggle */}
       <div className="flex items-center no-drag">
+        <button
+          onClick={() => setShowSearch(true)}
+          disabled={!isConnected}
+          title="Search objects (⌘K)"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          🔍
+        </button>
         <div className="relative">
           <button
             onClick={() => setShowSettingsMenu(m => !m)}
@@ -227,6 +248,8 @@ export function Toolbar() {
           {error}
         </span>
       )}
+
+      {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
 
       {showV0Warning && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

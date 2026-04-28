@@ -145,7 +145,8 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - Relationship graph visualization for non-compositional relationships
 - Subscribe to objects for real-time updates (polling or SSE)
 - Trend chart for numeric subscription values
-- Search/filter tree nodes
+- Search/filter tree nodes (inline sidebar filter)
+- Global object search modal (🔍 toolbar icon or ⌘K / Ctrl+K) — searches all objects by name or elementId, shows breadcrumb path, navigates to and expands the match in the tree (Hierarchy preferred, Objects flat as fallback)
 - Light/dark theme toggle (persists across restarts; falls back to OS preference)
 
 ## Key Resources
@@ -399,3 +400,12 @@ location / {
 - Stores up to 60 data points per elementId
 - Only displays for numeric values
 - Updates in real-time during active subscriptions
+
+### Global Object Search
+- Component: `src/components/search/SearchModal.tsx`
+- Triggered by 🔍 toolbar button or ⌘K / Ctrl+K (disabled when not connected)
+- Searches `allObjects` by `displayName` or `elementId` (case-insensitive substring); fetches from server if store is empty
+- Results capped at 50; sorted hierarchy-first, then alphabetical
+- **Tree preference**: an object is shown with a "Hierarchy" badge if it is a hierarchical root or has a non-empty `parentId` (not `/`); otherwise "Objects" badge
+- **Navigation** on result select: batch-expands `folder:hierarchical` + every `hier:{ancestorId}` up the `parentId` chain, then calls `selectItem` with the `hier:{elementId}` id. Falls back to expanding `folder:objects` and selecting `obj:{elementId}` for non-hierarchy objects
+- Ancestor expansion uses `useExplorerStore.setState({ expandedNodes })` in one write to avoid multiple re-renders
