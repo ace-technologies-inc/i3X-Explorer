@@ -5,6 +5,7 @@ import { MainPanel } from './components/layout/MainPanel'
 import { HistoryPanel } from './components/layout/HistoryPanel'
 import { BottomPanel } from './components/layout/BottomPanel'
 import { ConnectionDialog } from './components/connection/ConnectionDialog'
+import { UpdateChecker } from './components/updater/UpdateChecker'
 
 function App() {
   const { showConnectionDialog } = useConnectionStore()
@@ -31,6 +32,7 @@ function App() {
       </div>
 
       {showConnectionDialog && <ConnectionDialog />}
+      <UpdateChecker />
     </div>
   )
 }
