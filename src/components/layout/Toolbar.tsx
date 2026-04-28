@@ -150,26 +150,27 @@ export function Toolbar() {
             Disconnect
           </button>
         )}
-        {window.electronAPI && (
-          <button
-            onClick={() => window.electronAPI?.openDevTools()}
-            className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors"
-          >
-            Developer
-          </button>
-        )}
-      </div>
-
-      {/* Settings gear + search + theme toggle */}
-      <div className="flex items-center no-drag">
         <button
           onClick={() => setShowSearch(true)}
           disabled={!isConnected}
           title="Search objects (⌘K)"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base disabled:opacity-30 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
         >
-          🔍
+          <span>🔍</span>
+          <span>Search</span>
         </button>
+      </div>
+
+      {/* Settings gear + theme toggle */}
+      <div className="flex items-center no-drag">
+        {window.electronAPI && (
+          <button
+            onClick={() => window.electronAPI?.openDevTools()}
+            className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors mr-1"
+          >
+            Developer
+          </button>
+        )}
         <div className="relative">
           <button
             onClick={() => setShowSettingsMenu(m => !m)}
