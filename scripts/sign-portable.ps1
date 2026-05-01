@@ -1,5 +1,5 @@
 # sign-portable.ps1
-# Signs just the portable .exe — run this if the full build-sign-win.ps1 fails at the signing step.
+# Signs just the portable .exe -- run this if the full build-sign-win.ps1 fails at the signing step.
 #
 # Usage (from project root or scripts folder):
 #   .\scripts\sign-portable.ps1
@@ -15,16 +15,16 @@ $MetaFile   = Join-Path $DlibDir 'metadata.json'
 
 Set-Location $ProjectDir
 
-# ── Load credentials ──────────────────────────────────────────────────────────
+# Load credentials ------------------------------------------------------------------
 
 $AzureVarsFile = Join-Path $ScriptDir 'set-azure-vars.ps1'
 if (Test-Path $AzureVarsFile) {
     . $AzureVarsFile
 } else {
-    Write-Host "set-azure-vars.ps1 not found — expecting credentials already in environment" -ForegroundColor Yellow
+    Write-Host "set-azure-vars.ps1 not found -- expecting credentials already in environment" -ForegroundColor Yellow
 }
 
-# ── Validate ──────────────────────────────────────────────────────────────────
+# Validate --------------------------------------------------------------------------
 
 if (-not (Test-Path $DlibDll)) {
     Write-Host "dlib DLL not found: $DlibDll" -ForegroundColor Red
@@ -32,7 +32,7 @@ if (-not (Test-Path $DlibDll)) {
     exit 1
 }
 
-$version = node --% -p "require('./package.json').version"
+$version  = node --% -p "require('./package.json').version"
 $Portable = Join-Path $ProjectDir "release\$version\i3X Explorer-$version-portable.exe"
 
 if (-not (Test-Path $Portable)) {
@@ -40,18 +40,18 @@ if (-not (Test-Path $Portable)) {
     exit 1
 }
 
-# ── Find signtool ─────────────────────────────────────────────────────────────
+# Find signtool ---------------------------------------------------------------------
 
 $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
             Sort-Object FullName -Descending |
             Select-Object -First 1 -ExpandProperty FullName
 
 if (-not $signtool) {
-    Write-Host "signtool.exe not found — install the Windows 10/11 SDK." -ForegroundColor Red
+    Write-Host "signtool.exe not found -- install the Windows 10/11 SDK." -ForegroundColor Red
     exit 1
 }
 
-# ── Write metadata and sign ───────────────────────────────────────────────────
+# Write metadata and sign -----------------------------------------------------------
 
 $meta = @{
     Endpoint               = $env:AZURE_TRUSTED_SIGNING_ENDPOINT
