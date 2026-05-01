@@ -219,9 +219,11 @@ export class I3XClient {
         const body = await response.json() as Record<string, unknown>
         // v1 wraps the payload: {success, result: {...}}; also accept unwrapped bodies
         const info = (body.result ?? body) as Record<string, unknown>
-        const raw = (info.specVersion ?? info.version ?? info.apiVersion ?? '') as string
-        const major = parseFloat(raw)
-        this.apiVersion = (!isNaN(major) && major >= 1.0) ? 'v1' : 'v1-beta'
+        const serverVersion = String(info.serverVersion ?? '').toLowerCase()
+        const specRaw = (info.specVersion ?? info.version ?? info.apiVersion ?? '') as string
+        const specMajor = parseFloat(specRaw)
+        const isRelease = !isNaN(specMajor) && specMajor >= 1.0 && !serverVersion.includes('beta')
+        this.apiVersion = isRelease ? 'v1' : 'v1-beta'
       } catch {
         // /info responded OK but body isn't useful — treat as Beta
         this.apiVersion = 'v1-beta'
