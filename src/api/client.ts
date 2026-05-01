@@ -439,7 +439,11 @@ export class I3XClient {
   async createSubscription(): Promise<CreateSubscriptionResponse> {
     // v0: {subscriptionId, message}
     // v1: auto-unwrapped from {success, result: {clientId, subscriptionId, displayName}}
-    const response = await this.request<Record<string, unknown>>('POST', '/subscriptions', {})
+    // v1 (1.0): client must supply a cryptographically random clientId (issue #27)
+    const body = this.isV1()
+      ? { clientId: crypto.randomUUID() }
+      : {}
+    const response = await this.request<Record<string, unknown>>('POST', '/subscriptions', body)
     return {
       subscriptionId: String(response.subscriptionId),
       message: (response.message as string | undefined) ?? 'Subscription created'
