@@ -9,6 +9,7 @@ import type {
   SyncResponseItem,
   GetSubscriptionsResponse
 } from './types'
+import { buildAuthHeaders } from './auth'
 
 import type { Credentials } from '../stores/connection'
 
@@ -94,15 +95,6 @@ export class I3XClient {
     this.credentials = credentials ?? null
   }
 
-  private getAuthHeader(): string | null {
-    if (!this.credentials) return null
-    if (this.credentials.type === 'bearer') {
-      return `Bearer ${this.credentials.token}`
-    }
-    const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
-    return `Basic ${encoded}`
-  }
-
   getCredentials(): ClientCredentials | null {
     return this.credentials
   }
@@ -138,10 +130,7 @@ export class I3XClient {
       'Accept': 'application/json'
     }
 
-    const authHeader = this.getAuthHeader()
-    if (authHeader) {
-      headers['Authorization'] = authHeader
-    }
+    Object.assign(headers, buildAuthHeaders(this.credentials));
 
     const options: RequestInit = { method, headers }
     if (body) {
@@ -204,8 +193,7 @@ export class I3XClient {
         url = url.replace('://localhost:', '://127.0.0.1:')
       }
       const headers: Record<string, string> = { 'Accept': 'application/json' }
-      const authHeader = this.getAuthHeader()
-      if (authHeader) headers['Authorization'] = authHeader
+      Object.assign(headers, buildAuthHeaders(this.credentials));
 
       const response = await fetch(url, { method: 'GET', headers })
       if (!response.ok) {

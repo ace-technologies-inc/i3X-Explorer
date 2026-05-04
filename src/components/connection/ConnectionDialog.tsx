@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import type { Credentials } from '../../stores/connection'
 
-type AuthMethod = 'none' | 'basic' | 'bearer'
+type AuthMethod = 'none' | 'basic' | 'bearer' | 'header'
 
 export function ConnectionDialog() {
   const {
@@ -20,7 +20,8 @@ export function ConnectionDialog() {
 
   function getInitialAuthMethod(): AuthMethod {
     if (!savedCreds) return 'none'
-    return savedCreds.type === 'bearer' ? 'bearer' : 'basic'
+
+    return savedCreds.type;
   }
 
   const [inputUrl, setInputUrl] = useState(serverUrl)
@@ -28,6 +29,8 @@ export function ConnectionDialog() {
   const [username, setUsername] = useState(savedCreds?.type === 'basic' ? savedCreds.username : '')
   const [password, setPassword] = useState(savedCreds?.type === 'basic' ? savedCreds.password : '')
   const [token, setToken] = useState(savedCreds?.type === 'bearer' ? savedCreds.token : '')
+  const [headerName, setHeaderName] = useState(savedCreds?.type === 'header' ? savedCreds.headerName : '')
+  const [headerValue, setHeaderValue] = useState(savedCreds?.type === 'header' ? savedCreds.headerValue : '')
 
   const handleSave = () => {
     setServerUrl(inputUrl)
@@ -36,6 +39,8 @@ export function ConnectionDialog() {
       newCredentials = { type: 'basic', username, password }
     } else if (authMethod === 'bearer' && token) {
       newCredentials = { type: 'bearer', token }
+    } else if (authMethod === 'header' && headerName && headerValue) {
+      newCredentials = { type: 'header', headerName: headerName.trim(), headerValue }
     }
     setCredentials(newCredentials)
     saveCredentialsForUrl(inputUrl, newCredentials)
@@ -55,17 +60,30 @@ export function ConnectionDialog() {
         setToken(creds.token)
         setUsername('')
         setPassword('')
+        setHeaderName('')
+        setHeaderValue('')
+      } else if (creds.type === 'header') {
+        setAuthMethod('header')
+        setHeaderName(creds.headerName)
+        setHeaderValue(creds.headerValue)
+        setUsername('')
+        setPassword('')
+        setToken('')
       } else {
         setAuthMethod('basic')
         setUsername(creds.username)
         setPassword(creds.password)
         setToken('')
+        setHeaderName('')
+        setHeaderValue('')
       }
     } else {
       setAuthMethod('none')
       setUsername('')
       setPassword('')
       setToken('')
+      setHeaderName('')
+      setHeaderValue('')
     }
   }
 
@@ -106,6 +124,7 @@ export function ConnectionDialog() {
               <option value="none">None</option>
               <option value="basic">Basic Auth</option>
               <option value="bearer">Bearer Token</option>
+              <option value="header">Custom Header</option>
             </select>
           </div>
 
@@ -152,6 +171,37 @@ export function ConnectionDialog() {
                 placeholder="paste your bearer token"
                 className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
               />
+            </div>
+          )}
+
+          {authMethod === 'header' && (
+            <div className="space-y-3 pl-6">
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs text-i3x-text-muted">
+                    Header Name
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={headerName}
+                  onChange={(e) => setHeaderName(e.target.value)}
+                  placeholder="header name (e.g. X-API-Key, x-auth-token, Ocp-Apim-Subscription-Key)"
+                  className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-i3x-text-muted mb-1">
+                  Header Value
+                </label>
+                <input
+                  type="password"
+                  value={headerValue}
+                  onChange={(e) => setHeaderValue(e.target.value)}
+                  placeholder="header value"
+                  className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
+                />
+              </div>
             </div>
           )}
 

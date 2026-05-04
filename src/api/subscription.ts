@@ -1,5 +1,6 @@
 import type { SyncResponseItem } from './types'
 import type { ClientCredentials } from './client'
+import { buildAuthHeaders } from './auth'
 
 export type SubscriptionCallback = (items: SyncResponseItem[]) => void
 export type ErrorCallback = (error: Error) => void
@@ -75,14 +76,7 @@ export class SSESubscription {
       headers['Content-Type'] = 'application/json'
     }
 
-    if (this.credentials) {
-      if (this.credentials.type === 'bearer') {
-        headers['Authorization'] = `Bearer ${this.credentials.token}`
-      } else {
-        const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
-        headers['Authorization'] = `Basic ${encoded}`
-      }
-    }
+    Object.assign(headers, buildAuthHeaders(this.credentials))
 
     try {
       const response = await fetch(this.url, {

@@ -56,7 +56,13 @@ interface BearerCredentials {
   token: string
 }
 
-export type Credentials = BasicCredentials | BearerCredentials
+interface CustomHeaderCredentials {
+  type: 'header'
+  headerName: string
+  headerValue: string
+}
+
+export type Credentials = BasicCredentials | BearerCredentials | CustomHeaderCredentials
 
 interface ConnectionState {
   serverUrl: string
