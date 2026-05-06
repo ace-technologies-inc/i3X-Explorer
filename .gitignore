@@ -73,3 +73,5 @@ build/*.png
 scripts/nginx-web.conf
 scripts/i3x-explorer-web.service
 config.local.json
+demo/boiler.html
+.claude/settings.json
