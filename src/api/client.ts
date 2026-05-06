@@ -311,6 +311,40 @@ export class I3XClient {
     })
   }
 
+  // Batch /objects/related — used to authoritatively determine which parents
+  // have qualifying compositional children (for tree chevrons), in one round
+  // trip instead of one call per parent. Returns Map<parentElementId, children[]>.
+  // v1 only.
+  async getRelatedObjectsBatch(
+    elementIds: string[],
+    relationshipType?: string
+  ): Promise<Map<string, ObjectInstance[]>> {
+    const out = new Map<string, ObjectInstance[]>()
+    if (elementIds.length === 0 || !this.isV1()) return out
+    const raw = await this.request<unknown>('POST', '/objects/related', {
+      elementIds,
+      relationshipType,
+      includeMetadata: false
+    })
+    const results = extractV1BulkResults<Array<Record<string, unknown>>>(raw)
+    for (const item of results) {
+      if (!item.success || !Array.isArray(item.result)) {
+        out.set(item.elementId, [])
+        continue
+      }
+      const objects: ObjectInstance[] = []
+      for (const envelope of item.result) {
+        const inner = (envelope.object ?? envelope) as Record<string, unknown>
+        const r = envelope.object
+          ? { ...inner, sourceRelationship: envelope.sourceRelationship }
+          : inner
+        objects.push(normalizeV1Object(r as Record<string, unknown>))
+      }
+      out.set(item.elementId, objects)
+    }
+    return out
+  }
+
   // Value Methods (RFC 4.2.1)
 
   async getValue(elementId: string, maxDepth = 1): Promise<LastKnownValue | null> {

@@ -1,8 +1,39 @@
 import { useCallback, useEffect } from 'react'
 import { useExplorerStore, type SelectedItem } from '../../stores/explorer'
 import { useConnectionStore } from '../../stores/connection'
-import { getClient } from '../../api/client'
+import { getClient, type I3XClient } from '../../api/client'
 import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
+
+// After loading a layer of objects, decide chevron state for each compositional
+// parent by asking the server what /objects/related actually returns — i.e. the
+// same data the render filter sees at expansion time. Single batch round trip.
+// Awaiting this before committing layer state ensures chevrons render correctly
+// on first paint instead of flipping after a follow-up fetch.
+async function resolveCompositionFlags(client: I3XClient, loaded: ObjectInstance[]): Promise<void> {
+  if (loaded.length === 0) return
+  const { compositionCache, mergeCompositionFlags } = useExplorerStore.getState()
+  const toResolve: string[] = []
+  for (const obj of loaded) {
+    if (obj.isComposition && !compositionCache.has(obj.elementId)) {
+      toResolve.push(obj.elementId)
+    }
+  }
+  if (toResolve.length === 0) return
+  const additions = new Map<string, boolean>()
+  try {
+    const related = await client.getRelatedObjectsBatch(toResolve, 'HasComponent')
+    for (const parentId of toResolve) {
+      const children = related.get(parentId) ?? []
+      const hasQualifying = children.some(c =>
+        c.isComposition && c.elementId !== parentId && c.parentId === parentId
+      )
+      additions.set(parentId, hasQualifying)
+    }
+  } catch (err) {
+    console.error('Failed to resolve composition flags via /objects/related:', err)
+  }
+  if (additions.size > 0) mergeCompositionFlags(additions)
+}
 
 const BACKGROUND_POLL_ENABLED = true
 
@@ -11,6 +42,9 @@ const FolderIcon = () => <span className="text-i3x-warning">🗄️</span>
 const NamespaceIcon = () => <span className="text-i3x-primary">🌐</span>
 const TypeIcon = () => <span className="text-i3x-success">📃</span>
 const CompositionObjectIcon = () => <span className="text-i3x-secondary">📦</span>
+const EmptyCompositionObjectIcon = () => (
+  <span style={{ filter: 'grayscale(1)', opacity: 0.6 }}>📦</span>
+)
 const LeafObjectIcon = () => <span className="text-i3x-secondary">🗒️</span>
 const ChevronRight = () => <span className="text-i3x-text-muted">›</span>
 const ChevronDown = () => <span className="text-i3x-text-muted">⌄</span>
@@ -53,6 +87,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
           try {
             const objectType = data as ObjectType
             const objects = await client.getObjects(objectType.elementId)
+            await resolveCompositionFlags(client, objects)
             setObjects(objectType.elementId, objects)
           } catch (err) {
             console.error('Failed to load objects:', err)
@@ -66,6 +101,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         if (client) {
           try {
             const objects = await client.getObjects()
+            await resolveCompositionFlags(client, objects)
             setAllObjects(objects)
           } catch (err) {
             console.error('Failed to load all objects:', err)
@@ -80,6 +116,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         if (client) {
           try {
             const roots = await client.getObjects(undefined, false, true)
+            await resolveCompositionFlags(client, roots)
             setHierarchicalRoots(roots)
           } catch (err) {
             console.error('Failed to load root objects:', err)
@@ -93,6 +130,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         if (client) {
           try {
             const objects = await client.getObjects()
+            await resolveCompositionFlags(client, objects)
             setAllObjects(objects)
           } catch (err) {
             console.error('Failed to refresh objects for hierarchy node:', err)
@@ -113,6 +151,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
                 child.elementId !== obj.elementId &&
                 child.parentId === obj.elementId
               )
+              await resolveCompositionFlags(client, compositionalChildren)
               setChildObjects(obj.elementId, compositionalChildren)
             } catch (err) {
               console.error('Failed to load child objects:', err)
@@ -129,8 +168,13 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         return <NamespaceIcon />
       case 'objectType':
         return <TypeIcon />
-      case 'object':
-        return hasChildren ? <CompositionObjectIcon /> : <LeafObjectIcon />
+      case 'object': {
+        const obj = data as ObjectInstance | undefined
+        if (obj?.isComposition) {
+          return hasChildren ? <CompositionObjectIcon /> : <EmptyCompositionObjectIcon />
+        }
+        return <LeafObjectIcon />
+      }
       case 'folder':
         return <FolderIcon />
     }
@@ -160,6 +204,15 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
 // Max depth for tree rendering to prevent infinite loops
 const MAX_TREE_DEPTH = 20
 
+// Chevron predicate: consult the compositionCache, which holds the answer
+// resolved via batched /objects/related. If we haven't resolved this object
+// yet, fall back to its isComposition flag (chevron may show momentarily).
+function hasCompositionChildren(obj: ObjectInstance, cache: Map<string, boolean>): boolean {
+  if (!obj.isComposition) return false
+  const cached = cache.get(obj.elementId)
+  return cached ?? true
+}
+
 // Get display label for an object, handling special cases like root "/"
 function getObjectLabel(obj: ObjectInstance): string {
   if (obj.displayName && obj.displayName.trim()) {
@@ -183,8 +236,9 @@ function ObjectNode({
 }) {
   // Subscribe only to this object's children, not the entire map
   const children = useExplorerStore(
-    (state) => state.childObjects.get(obj.elementId) || []
+    (state) => state.childObjects.get(obj.elementId) ?? []
   )
+  const compositionCache = useExplorerStore((state) => state.compositionCache)
   const filteredChildren = children.filter(
     (child) =>
       !filterText ||
@@ -212,7 +266,7 @@ function ObjectNode({
       type="object"
       data={obj}
       depth={depth}
-      hasChildren={obj.isComposition}
+      hasChildren={hasCompositionChildren(obj, compositionCache)}
     >
       {filteredChildren.map((child) => (
         <ObjectNode
@@ -318,6 +372,7 @@ export function TreeView() {
         const typeElementId = nodeId.slice(5)
         try {
           const objects = await client.getObjects(typeElementId)
+          await resolveCompositionFlags(client, objects)
           setObjects(typeElementId, objects)
         } catch (err) {
           console.error('Background refresh: type failed', typeElementId, err)
@@ -328,6 +383,7 @@ export function TreeView() {
         allObjectsRefreshed = true
         try {
           const objects = await client.getObjects()
+          await resolveCompositionFlags(client, objects)
           setAllObjects(objects)
         } catch (err) {
           console.error('Background refresh: all objects failed', err)
@@ -337,6 +393,7 @@ export function TreeView() {
       if (nodeId === HIERARCHICAL_FOLDER_ID) {
         try {
           const roots = await client.getObjects(undefined, false, true)
+          await resolveCompositionFlags(client, roots)
           setHierarchicalRoots(roots)
         } catch (err) {
           console.error('Background refresh: root objects failed', err)
@@ -354,6 +411,7 @@ export function TreeView() {
               child.elementId !== elementId &&
               child.parentId === elementId
             )
+            await resolveCompositionFlags(client, compositionalChildren)
             setChildObjects(elementId, compositionalChildren)
           } catch (err) {
             console.error('Background refresh: children failed', elementId, err)
@@ -441,7 +499,7 @@ export function TreeView() {
               hasChildren={hasTypes}
             >
               {nsTypes.map((type) => {
-                const typeObjects = objects.get(type.elementId) || []
+                const typeObjects = objects.get(type.elementId) ?? []
                 const filteredObjects = typeObjects.filter(
                   (obj) =>
                     !filterText ||
