@@ -38,7 +38,9 @@ async function resolveCompositionFlags(client: I3XClient, loaded: ObjectInstance
 const BACKGROUND_POLL_ENABLED = true
 
 // Icons
-const FolderIcon = () => <span className="text-i3x-warning">🗄️</span>
+const FolderIcon = () => (
+  <span style={{ filter: 'sepia(1) saturate(1.6) hue-rotate(-15deg) brightness(0.89)' }}>🗄️</span>
+)
 const NamespaceIcon = () => <span className="text-i3x-primary">🌐</span>
 const TypeIcon = () => <span className="text-i3x-success">📃</span>
 const CompositionObjectIcon = () => <span className="text-i3x-secondary">📦</span>
@@ -61,10 +63,13 @@ interface TreeNodeProps {
   data?: Namespace | ObjectType | ObjectInstance
   depth: number
   hasChildren?: boolean
+  // Optional minimalist count badge rendered to the right of the label —
+  // small, muted, no brackets. Only rendered when defined.
+  count?: number
   children?: React.ReactNode
 }
 
-function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeNodeProps) {
+function TreeNode({ id, label, type, data, depth, hasChildren, count, children }: TreeNodeProps) {
   const { expandedNodes, selectedItem, toggleNode, selectItem, setObjects, setAllObjects, setHierarchicalRoots, setChildObjects } = useExplorerStore()
 
   const isExpanded = expandedNodes.has(id)
@@ -194,7 +199,12 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
         )}
         {!hasChildren && <span className="w-4" />}
         <span className="flex-shrink-0">{getIcon()}</span>
-        <span className="truncate text-sm">{label}</span>
+        <span className="truncate text-sm">
+          {label}
+          {count !== undefined && (
+            <span className="ml-1.5 text-i3x-text-muted/60 tabular-nums">{count}</span>
+          )}
+        </span>
       </div>
       {isExpanded && children}
     </div>
@@ -288,22 +298,23 @@ function HierarchicalObjectNode({
   depth,
   filterText,
   allObjects,
+  visibleIds,
   ancestors = new Set<string>()
 }: {
   obj: ObjectInstance
   depth: number
   filterText: string
   allObjects: ObjectInstance[]
+  // When filterText is active, set of object IDs that should remain visible
+  // (matches + their ancestors). Computed once at the TreeView level.
+  visibleIds?: Set<string>
   ancestors?: Set<string>
 }) {
   // Find children by filtering allObjects where parentId matches this object
   const children = allObjects.filter(child => child.parentId === obj.elementId)
-  const filteredChildren = children.filter(
-    (child) =>
-      !filterText ||
-      child.displayName.toLowerCase().includes(filterText) ||
-      child.elementId.toLowerCase().includes(filterText)
-  )
+  const filteredChildren = filterText
+    ? children.filter(child => visibleIds?.has(child.elementId))
+    : children
 
   // Prevent infinite recursion - depth limit or cycle detection
   if (depth > MAX_TREE_DEPTH || ancestors.has(obj.elementId)) {
@@ -336,6 +347,7 @@ function HierarchicalObjectNode({
           depth={depth + 1}
           filterText={filterText}
           allObjects={allObjects}
+          visibleIds={visibleIds}
           ancestors={childAncestors}
         />
       ))}
@@ -344,7 +356,7 @@ function HierarchicalObjectNode({
 }
 
 export function TreeView() {
-  const { namespaces, objectTypes, objects, allObjects, hierarchicalRoots, searchQuery, pollIntervalMs, manualRefreshTick } = useExplorerStore()
+  const { namespaces, objectTypes, objects, allObjects, hierarchicalRoots, searchQuery, setSearchQuery, pollIntervalMs, manualRefreshTick } = useExplorerStore()
   const isConnected = useConnectionStore(state => state.isConnected)
 
   const refreshTree = useCallback(async () => {
@@ -434,52 +446,107 @@ export function TreeView() {
     refreshTree()
   }, [manualRefreshTick, isConnected, refreshTree])
 
-  // Filter based on search
-  const filterText = searchQuery.toLowerCase()
+  // Auto-expand the three root folders whenever a search query is active so
+  // matches are visible without the user having to click each folder open.
+  useEffect(() => {
+    if (!searchQuery.trim()) return
+    const { expandNode } = useExplorerStore.getState()
+    expandNode(NAMESPACES_FOLDER_ID)
+    expandNode(OBJECTS_FOLDER_ID)
+    expandNode(HIERARCHICAL_FOLDER_ID)
+  }, [searchQuery])
 
-  const filteredNamespaces = namespaces.filter(
-    (ns) =>
+  // Filter based on search. To make deep matches surface their ancestors,
+  // we precompute three sets:
+  //   matchingTypeIds: type IDs that have ≥1 matching object (so the type and
+  //     its parent namespace stay visible even if their own names don't match)
+  //   hierarchyVisibleIds: object IDs to keep in the Hierarchy view —
+  //     every match plus every ancestor up the parentId chain
+  //   matchedNamespaceUris: namespace URIs reached transitively via matching
+  //     types/objects (so a namespace whose name doesn't match still renders
+  //     when something inside it does)
+  const filterText = searchQuery.toLowerCase()
+  const objMatches = (obj: ObjectInstance) =>
+    obj.displayName.toLowerCase().includes(filterText) ||
+    obj.elementId.toLowerCase().includes(filterText)
+
+  const matchingTypeIds = new Set<string>()
+  const hierarchyVisibleIds = new Set<string>()
+  const matchedNamespaceUris = new Set<string>()
+  if (filterText) {
+    const objById = new Map(allObjects.map(o => [o.elementId, o]))
+    for (const obj of allObjects) {
+      if (!objMatches(obj)) continue
+      matchingTypeIds.add(obj.typeId)
+      // Walk parents up to the root, marking every ancestor visible
+      let cur: ObjectInstance | undefined = obj
+      while (cur && !hierarchyVisibleIds.has(cur.elementId)) {
+        hierarchyVisibleIds.add(cur.elementId)
+        cur = cur.parentId ? objById.get(cur.parentId) : undefined
+      }
+    }
+    // Any type that matches by name OR by descendant pulls its namespace in
+    for (const type of objectTypes) {
+      const typeMatches =
+        type.displayName.toLowerCase().includes(filterText) ||
+        type.elementId.toLowerCase().includes(filterText) ||
+        matchingTypeIds.has(type.elementId)
+      if (typeMatches) matchedNamespaceUris.add(type.namespaceUri)
+    }
+  }
+
+  const filteredNamespaces = namespaces.filter(ns => {
+    if (!filterText) return true
+    if (
       ns.displayName.toLowerCase().includes(filterText) ||
       ns.uri.toLowerCase().includes(filterText)
-  )
+    ) return true
+    return matchedNamespaceUris.has(ns.uri)
+  })
 
-  // Group object types by namespace
+  // Group object types by namespace; keep types whose name matches OR whose
+  // descendant objects match.
   const typesByNamespace = new Map<string, ObjectType[]>()
   objectTypes.forEach((type) => {
-    if (
+    const keep =
       !filterText ||
       type.displayName.toLowerCase().includes(filterText) ||
-      type.elementId.toLowerCase().includes(filterText)
-    ) {
+      type.elementId.toLowerCase().includes(filterText) ||
+      matchingTypeIds.has(type.elementId)
+    if (keep) {
       const types = typesByNamespace.get(type.namespaceUri) || []
       types.push(type)
       typesByNamespace.set(type.namespaceUri, types)
     }
   })
 
-  // Filter all objects for the Objects folder
-  const filteredAllObjects = allObjects.filter(
-    (obj) =>
-      !filterText ||
-      obj.displayName.toLowerCase().includes(filterText) ||
-      obj.elementId.toLowerCase().includes(filterText)
-  )
+  // Filter all objects for the Objects folder (flat list — only direct matches)
+  const filteredAllObjects = allObjects.filter(obj => !filterText || objMatches(obj))
 
   const filteredHierarchicalRoots = hierarchicalRoots.filter(
-    (obj) =>
-      !filterText ||
-      obj.displayName.toLowerCase().includes(filterText) ||
-      obj.elementId.toLowerCase().includes(filterText)
+    obj => !filterText || hierarchyVisibleIds.has(obj.elementId)
   )
 
   const hasNamespaces = namespaces.length > 0
 
   return (
     <div className="text-i3x-text">
+      {/* Filter input */}
+      <div className="sticky top-0 z-10 bg-i3x-surface pb-2 mb-1">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Filter tree…"
+          className="w-full px-2 py-1 text-sm bg-i3x-bg border border-i3x-border rounded text-i3x-text placeholder:text-i3x-text-muted focus:outline-none focus:border-i3x-primary"
+        />
+      </div>
+
       {/* Namespaces folder */}
       <TreeNode
         id={NAMESPACES_FOLDER_ID}
         label="Namespaces"
+        count={namespaces.length > 0 ? namespaces.length : undefined}
         type="folder"
         depth={0}
         hasChildren={hasNamespaces}
@@ -537,6 +604,7 @@ export function TreeView() {
       <TreeNode
         id={OBJECTS_FOLDER_ID}
         label="Objects"
+        count={allObjects.length > 0 ? allObjects.length : undefined}
         type="folder"
         depth={0}
         hasChildren={true}
@@ -560,6 +628,7 @@ export function TreeView() {
       <TreeNode
         id={HIERARCHICAL_FOLDER_ID}
         label="Hierarchy"
+        count={hierarchicalRoots.length > 0 ? hierarchicalRoots.length : undefined}
         type="folder"
         depth={0}
         hasChildren={true}
@@ -571,6 +640,7 @@ export function TreeView() {
             depth={1}
             filterText={filterText}
             allObjects={allObjects}
+            visibleIds={hierarchyVisibleIds}
           />
         ))}
         {allObjects.length > 0 && filteredHierarchicalRoots.length === 0 && (
