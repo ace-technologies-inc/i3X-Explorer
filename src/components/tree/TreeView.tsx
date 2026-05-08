@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useExplorerStore, type SelectedItem } from '../../stores/explorer'
 import { useConnectionStore } from '../../stores/connection'
 import { getClient, type I3XClient } from '../../api/client'
@@ -192,6 +192,10 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
       >
+        {/* Non-root nodes: count rendered to the left of the chevron */}
+        {type !== 'folder' && count !== undefined && (
+          <span className="text-sm text-i3x-text-muted/60 tabular-nums flex-shrink-0">{count}</span>
+        )}
         {hasChildren && (
           <span className="w-4 flex-shrink-0">
             {isExpanded ? <ChevronDown /> : <ChevronRight />}
@@ -201,7 +205,8 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
         <span className="flex-shrink-0">{getIcon()}</span>
         <span className="truncate text-sm">
           {label}
-          {count !== undefined && (
+          {/* Root folders: count rendered after the label */}
+          {type === 'folder' && count !== undefined && (
             <span className="ml-1.5 text-i3x-text-muted/60 tabular-nums">{count}</span>
           )}
         </span>
@@ -335,6 +340,7 @@ function HierarchicalObjectNode({
     <TreeNode
       id={`hier:${obj.elementId}`}
       label={getObjectLabel(obj)}
+      count={children.length > 0 ? children.length : undefined}
       type="object"
       data={obj}
       depth={depth}
@@ -529,6 +535,16 @@ export function TreeView() {
 
   const hasNamespaces = namespaces.length > 0
 
+  // Instance count per type, derived from already-loaded allObjects (no extra
+  // network). Memoized so the group-by only runs when allObjects changes, not
+  // on every keystroke in the filter input. Hierarchy node counts are derived
+  // locally from each node's `children` array, so no parent map needed here.
+  const objectCountByType = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const o of allObjects) m.set(o.typeId, (m.get(o.typeId) ?? 0) + 1)
+    return m
+  }, [allObjects])
+
   return (
     <div className="text-i3x-text">
       {/* Filter input */}
@@ -560,6 +576,7 @@ export function TreeView() {
               key={namespace.uri}
               id={`ns:${namespace.uri}`}
               label={namespace.displayName}
+              count={nsTypes.length > 0 ? nsTypes.length : undefined}
               type="namespace"
               data={namespace}
               depth={1}
@@ -573,12 +590,14 @@ export function TreeView() {
                     obj.displayName.toLowerCase().includes(filterText) ||
                     obj.elementId.toLowerCase().includes(filterText)
                 )
+                const instanceCount = objectCountByType.get(type.elementId)
 
                 return (
                   <TreeNode
                     key={type.elementId}
                     id={`type:${type.elementId}`}
                     label={type.displayName}
+                    count={instanceCount && instanceCount > 0 ? instanceCount : undefined}
                     type="objectType"
                     data={type}
                     depth={2}
