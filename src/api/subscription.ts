@@ -87,7 +87,13 @@ export class SSESubscription {
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        const err = new Error(`HTTP ${response.status}: ${response.statusText}`)
+        // 404/410 means the subscription is gone — retrying will always fail
+        if (response.status === 404 || response.status === 410) {
+          this.onError(err)
+          return
+        }
+        throw err
       }
 
       if (!response.body) {

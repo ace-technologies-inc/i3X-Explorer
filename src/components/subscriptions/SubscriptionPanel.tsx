@@ -12,7 +12,9 @@ export function SubscriptionPanel() {
     liveValues,
     activeSubscriptionId,
     setActiveSubscription,
+    addSubscription,
     removeSubscription,
+    removeMonitoredItem,
     updateLiveValue,
     setStreaming,
     clearAll
@@ -56,6 +58,38 @@ export function SubscriptionPanel() {
     })
   }
 
+  const handleRecovery = async (oldSubscriptionId: string) => {
+    const client = getClient()
+    if (!client) return
+
+    console.warn(`Subscription ${oldSubscriptionId} expired on server, recovering...`)
+
+    const { subscriptions: currentSubs } = useSubscriptionsStore.getState()
+    const oldSub = currentSubs.get(oldSubscriptionId)
+    const monitoredItems = oldSub?.monitoredItems ?? []
+
+    monitoredItems.forEach((elementId) => {
+      removeMonitoredItem(oldSubscriptionId, elementId)
+    })
+    removeSubscription(oldSubscriptionId)
+
+    try {
+      const { subscriptionId: newId } = await client.createSubscription()
+      if (monitoredItems.length > 0) {
+        await client.registerMonitoredItems(newId, monitoredItems)
+      }
+      addSubscription({
+        id: newId,
+        createdAt: new Date().toISOString(),
+        monitoredItems,
+        isStreaming: false
+      })
+      await handleStartStream(newId)
+    } catch (err) {
+      console.error('Subscription recovery failed:', err)
+    }
+  }
+
   const handleStartStream = async (subscriptionId: string) => {
     const client = getClient()
     if (!client) return
@@ -70,8 +104,12 @@ export function SubscriptionPanel() {
         () => client.sync(subscriptionId),
         handleDataUpdate,
         (error) => {
-          console.error('Polling error:', error)
-          setStreaming(subscriptionId, false)
+          if (error.message.includes('HTTP 404') || error.message.includes('HTTP 410')) {
+            handleRecovery(subscriptionId)
+          } else {
+            console.error('Polling error:', error)
+            setStreaming(subscriptionId, false)
+          }
         },
         2000 // Poll every 2 seconds
       )
@@ -84,8 +122,12 @@ export function SubscriptionPanel() {
         streamConfig.url,
         handleDataUpdate,
         (error) => {
-          console.error('SSE error:', error)
-          setStreaming(subscriptionId, false)
+          if (error.message.includes('HTTP 404') || error.message.includes('HTTP 410')) {
+            handleRecovery(subscriptionId)
+          } else {
+            console.error('SSE error:', error)
+            setStreaming(subscriptionId, false)
+          }
         },
         client.getCredentials(),
         streamConfig.postBody
@@ -106,12 +148,15 @@ export function SubscriptionPanel() {
     const client = getClient()
     if (!client) return
 
+    // Stop transport first to close timer-fire race window
+    sseRef.current?.disconnect()
+    sseRef.current = null
+    pollingRef.current?.stop()
+    pollingRef.current = null
+
     try {
-      await client.deleteSubscription(subscriptionId)
-      if (subscriptions.get(subscriptionId)?.isStreaming) {
-        sseRef.current?.disconnect()
-      }
       removeSubscription(subscriptionId)
+      await client.deleteSubscription(subscriptionId)
     } catch (err) {
       console.error('Failed to delete subscription:', err)
     }
