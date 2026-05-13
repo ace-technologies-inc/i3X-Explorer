@@ -6,6 +6,12 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+// AppImages on Linux can't set the chrome-sandbox SUID bit at mount time,
+// so Chromium refuses to start without this flag.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox')
+}
+
 // Set the app name for macOS menu bar (overrides package.json "name")
 app.setName('i3X Explorer')
 
