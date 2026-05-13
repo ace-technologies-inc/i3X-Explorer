@@ -137,12 +137,20 @@ Write-Ok "signtool.exe: $signtool"
 
 # ── Check/Download: Azure Trusted Signing dlib ────────────────────────────────
 
-$DlibPackage = 'Microsoft.Trusted.Signing.Client'
-$DlibVersion = '1.0.60'                       # update when new versions ship
-$DlibDll     = Join-Path $DlibDir 'bin\x64\Azure.CodeSigning.Dlib.dll'
+$DlibPackage   = 'Microsoft.Trusted.Signing.Client'
+$DlibVersion   = '1.0.95'                       # update when new versions ship
+$DlibDll       = Join-Path $DlibDir 'bin\x64\Azure.CodeSigning.Dlib.dll'
+$DlibCacheFile = Join-Path $DlibDir '.version'  # tracks which version is cached
+
+# Wipe cache if it contains a different version
+$cachedVersion = if (Test-Path $DlibCacheFile) { Get-Content $DlibCacheFile -Raw | ForEach-Object { $_.Trim() } } else { $null }
+if ($cachedVersion -and $cachedVersion -ne $DlibVersion) {
+    Write-Warn "Cached dlib v$cachedVersion is outdated (need v$DlibVersion) — clearing cache..."
+    Remove-Item -Recurse -Force $DlibDir
+}
 
 if (-not (Test-Path $DlibDll)) {
-    Write-Warn "Azure Trusted Signing dlib not cached — downloading from NuGet..."
+    Write-Warn "Azure Trusted Signing dlib not cached — downloading v$DlibVersion from NuGet..."
 
     New-Item -ItemType Directory -Force -Path $DlibDir | Out-Null
     $nupkgUrl  = "https://api.nuget.org/v3-flatcontainer/$($DlibPackage.ToLower())/$DlibVersion/$($DlibPackage.ToLower()).$DlibVersion.nupkg"
@@ -152,6 +160,7 @@ if (-not (Test-Path $DlibDll)) {
         Invoke-WebRequest -Uri $nupkgUrl -OutFile $nupkgPath -UseBasicParsing
         Expand-Archive -Path $nupkgPath -DestinationPath $DlibDir -Force
         Remove-Item $nupkgPath
+        Set-Content -Path $DlibCacheFile -Value $DlibVersion -NoNewline
     } catch {
         Abort "Failed to download dlib from NuGet: $_`nCheck your internet connection or download manually from:`n  https://www.nuget.org/packages/$DlibPackage"
     }
@@ -161,7 +170,7 @@ if (-not (Test-Path $DlibDll)) {
     Abort "dlib DLL not found at expected path after extraction: $DlibDll`nThe NuGet package layout may have changed — inspect $DlibDir manually."
 }
 
-Write-Ok "Azure Trusted Signing dlib: $DlibVersion"
+Write-Ok "Azure Trusted Signing dlib: v$DlibVersion"
 
 # ── Check: Azure credentials ──────────────────────────────────────────────────
 
@@ -258,6 +267,29 @@ Remove-Item $MetadataFile -ErrorAction SilentlyContinue
 
 if (-not $allSigned) {
     Abort "One or more files failed to sign."
+}
+
+# ── Verify ────────────────────────────────────────────────────────────────────
+
+Write-Header "Verifying signatures"
+
+$allVerified = $true
+foreach ($exe in $exeFiles) {
+    $result = & $signtool verify /pa /v $exe.FullName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Verification FAILED for $($exe.Name)"
+        $result | Where-Object { $_ -match '(Error|error|Subject|Issued|Timestamp|not valid)' } |
+            ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        $allVerified = $false
+    } else {
+        # Extract the subject line for a concise confirmation
+        $subject = $result | Where-Object { $_ -match '^\s*Subject:' } | Select-Object -First 1
+        Write-Ok "$($exe.Name)$(if ($subject) { '  ·  ' + $subject.Trim() })"
+    }
+}
+
+if (-not $allVerified) {
+    Abort "One or more files failed signature verification — do NOT distribute these builds."
 }
 
 # ── Done ──────────────────────────────────────────────────────────────────────
