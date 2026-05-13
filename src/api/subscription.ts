@@ -5,6 +5,21 @@ import { buildAuthHeaders } from './auth'
 export type SubscriptionCallback = (items: SyncResponseItem[]) => void
 export type ErrorCallback = (error: Error) => void
 
+export class HttpStatusError extends Error {
+  readonly status: number
+  constructor(status: number, statusText: string) {
+    super(`HTTP ${status}: ${statusText}`)
+    this.name = 'HttpStatusError'
+    this.status = status
+  }
+}
+
+// Detects server-side subscription expiry from either SSE (typed) or polling (string) error paths
+export function isSubscriptionGoneError(error: Error): boolean {
+  if (error instanceof HttpStatusError) return error.status === 404 || error.status === 410
+  return error.message.startsWith('HTTP 404') || error.message.startsWith('HTTP 410')
+}
+
 // #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
 // Extracts value/quality/timestamp from either standard format or nested Data.Value format
 // Standard: { value: X, quality: Y, timestamp: Z }
@@ -87,7 +102,7 @@ export class SSESubscription {
       })
 
       if (!response.ok) {
-        const err = new Error(`HTTP ${response.status}: ${response.statusText}`)
+        const err = new HttpStatusError(response.status, response.statusText)
         // 404/410 means the subscription is gone — retrying will always fail
         if (response.status === 404 || response.status === 410) {
           this.onError(err)

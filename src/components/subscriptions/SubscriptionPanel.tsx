@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
-import { SSESubscription, PollingSubscription } from '../../api/subscription'
+import { SSESubscription, PollingSubscription, isSubscriptionGoneError } from '../../api/subscription'
 import { TrendView } from './TrendView'
 import type { SyncResponseItem } from '../../api/types'
 
@@ -24,6 +24,7 @@ export function SubscriptionPanel() {
 
   const sseRef = useRef<SSESubscription | null>(null)
   const pollingRef = useRef<PollingSubscription | null>(null)
+  const recoveryAttemptsRef = useRef(0)
   const [usePolling, setUsePolling] = useState(false) // Default to SSE streaming
 
   // Cleanup on unmount
@@ -46,6 +47,7 @@ export function SubscriptionPanel() {
   }, [isConnected, clearAll])
 
   const handleDataUpdate = (items: SyncResponseItem[]) => {
+    recoveryAttemptsRef.current = 0
     items.forEach((item) => {
       updateLiveValue({
         elementId: item.elementId,
@@ -62,7 +64,13 @@ export function SubscriptionPanel() {
     const client = getClient()
     if (!client) return
 
-    console.warn(`Subscription ${oldSubscriptionId} expired on server, recovering...`)
+    if (recoveryAttemptsRef.current >= 3) {
+      console.warn(`Subscription ${oldSubscriptionId} recovery aborted after 3 attempts`)
+      setStreaming(oldSubscriptionId, false)
+      return
+    }
+    recoveryAttemptsRef.current++
+    console.warn(`Subscription ${oldSubscriptionId} expired on server, recovering (attempt ${recoveryAttemptsRef.current})...`)
 
     const { subscriptions: currentSubs } = useSubscriptionsStore.getState()
     const oldSub = currentSubs.get(oldSubscriptionId)
@@ -84,6 +92,7 @@ export function SubscriptionPanel() {
         monitoredItems,
         isStreaming: false
       })
+      setActiveSubscription(newId)
       await handleStartStream(newId)
     } catch (err) {
       console.error('Subscription recovery failed:', err)
@@ -104,7 +113,7 @@ export function SubscriptionPanel() {
         () => client.sync(subscriptionId),
         handleDataUpdate,
         (error) => {
-          if (error.message.includes('HTTP 404') || error.message.includes('HTTP 410')) {
+          if (isSubscriptionGoneError(error)) {
             handleRecovery(subscriptionId)
           } else {
             console.error('Polling error:', error)
@@ -122,7 +131,7 @@ export function SubscriptionPanel() {
         streamConfig.url,
         handleDataUpdate,
         (error) => {
-          if (error.message.includes('HTTP 404') || error.message.includes('HTTP 410')) {
+          if (isSubscriptionGoneError(error)) {
             handleRecovery(subscriptionId)
           } else {
             console.error('SSE error:', error)
