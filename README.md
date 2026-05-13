@@ -16,8 +16,8 @@ The official cross-platform desktop application for browsing and monitoring [I3X
 - Object counts at every level — folders, namespaces, types, and hierarchy nodes
 - Authoritative chevron state: branches that have no expandable children don't show a chevron, even when the underlying object claims to be compositional
 - View object details, metadata, schema extensions, and current values
-- Relationship graph for non-compositional relationships
-- Subscribe to objects for real-time updates via SSE (with polling fallback) and a trend chart for numeric values
+- Relationship graph for non-compositional relationships; click any node to navigate directly to it in the tree; hover to see full names
+- Subscribe to objects for real-time updates via SSE (with polling fallback) and a trend chart for numeric values; subscriptions auto-recover transparently if the server expires them
 - Global object search modal (⌘K / Ctrl+K) that navigates and expands to any match by name or elementId
 - Tree auto-refresh: expanding a branch re-fetches from the server; 30s background poll keeps expanded branches current
 - Light and dark theme with toggle button (follows OS preference by default)

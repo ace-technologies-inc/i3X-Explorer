@@ -142,8 +142,8 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - Expand compositional objects to see children
 - Tree auto-refresh: expanding a branch always re-fetches from the server; 30s background poll refreshes all expanded branches
 - View object details, metadata, and current values
-- Relationship graph visualization for non-compositional relationships
-- Subscribe to objects for real-time updates (polling or SSE)
+- Relationship graph visualization for non-compositional relationships; click any node to navigate and expand it in the sidebar tree; hover nodes for full-name tooltip
+- Subscribe to objects for real-time updates (polling or SSE); subscriptions auto-recover transparently on server-side expiry (HTTP 404/410)
 - Trend chart for numeric subscription values
 - Search/filter tree nodes (inline sidebar filter)
 - Global object search modal (🔍 toolbar icon or ⌘K / Ctrl+K) — searches all objects by name or elementId, shows breadcrumb path, navigates to and expands the match in the tree (Hierarchy preferred, Objects flat as fallback)
@@ -432,3 +432,19 @@ location / {
 - **Tree preference**: an object is shown with a "Hierarchy" badge if it is a hierarchical root or has a non-empty `parentId` (not `/`); otherwise "Objects" badge
 - **Navigation** on result select: batch-expands `folder:hierarchical` + every `hier:{ancestorId}` up the `parentId` chain, then calls `selectItem` with the `hier:{elementId}` id. Falls back to expanding `folder:objects` and selecting `obj:{elementId}` for non-hierarchy objects
 - Ancestor expansion uses `useExplorerStore.setState({ expandedNodes })` in one write to avoid multiple re-renders
+
+### Relationship Graph Navigation
+- Clicking a node in `RelationshipGraph` navigates to that object in the sidebar tree
+- Uses the same atomic ancestor expansion pattern as SearchModal: reads fresh state via `useExplorerStore.getState()` (not stale closure), builds a complete `newExpanded` Set from the current `expandedNodes`, then commits in one `setState` call before invoking `selectItem`
+- Guards `allObjects` and `hierarchicalRoots` independently — either can be empty without triggering the other's fetch
+
+### Subscription Recovery
+- `src/api/subscription.ts` exports `HttpStatusError` (carries `.status: number`) and `isSubscriptionGoneError(error)` helper
+- HTTP 404/410 on the SSE stream calls `onError` directly instead of entering the reconnect loop — retrying a gone subscription always fails
+- `SubscriptionPanel` catches these via `isSubscriptionGoneError()` and calls `handleRecovery()`: tears down the stale subscription, creates a fresh one, re-registers monitored items, resumes streaming, and updates `activeSubscriptionId`
+- Recovery is capped at 3 attempts (`recoveryAttemptsRef`); the counter resets to 0 on the first successful data delivery
+- Polling path errors from `client.sync()` use string-prefix matching as fallback (those errors come from `client.ts`, not `subscription.ts`)
+
+### SVG Tooltips in Electron
+- Electron's Chromium suppresses native SVG `<title>` tooltips — they never appear
+- Use a React state + HTML overlay approach instead: track `{ label, x, y }` state, set it on `onMouseEnter` of each SVG `<g>` node, update position on `onMouseMove` of the wrapper div, clear on `onMouseLeave`, render as an absolutely-positioned `<div>` with `pointerEvents: none`
