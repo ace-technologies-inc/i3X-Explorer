@@ -6,12 +6,11 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// On Linux, force SwiftShader (bundled software rasterizer) instead of real GPU.
-// disableHardwareAcceleration() kills the GPU process entirely, which breaks the
-// Wayland buffer path and prevents ready-to-show from firing. SwiftShader keeps
-// the GPU pipeline alive for compositing while avoiding VA-API and real-GPU deps.
+// Disable GPU on Linux to avoid VA-API/EGL failures on VMs and systems without
+// working GPU drivers. The window-show fallback below handles ready-to-show not
+// firing when the GPU process is absent.
 if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('use-gl', 'swiftshader')
+  app.disableHardwareAcceleration()
 }
 
 // Set the app name for macOS menu bar (overrides package.json "name")
@@ -81,10 +80,16 @@ function createWindow() {
     show: false
   })
 
-  // Show window when ready to avoid flash
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-  })
+  // Show window when ready to avoid flash.
+  // On Linux with hardware acceleration disabled, ready-to-show depends on the
+  // GPU compositor for first-paint and may never fire. did-finish-load fires after
+  // page navigation completes regardless of GPU state and serves as the fallback.
+  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  if (process.platform === 'linux') {
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
+    })
+  }
 
   // Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
