@@ -15,5 +15,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Open DevTools in detached window
   openDevTools: () => {
     return ipcRenderer.invoke('open-devtools')
-  }
+  },
+  onAppBeforeQuit: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('app-before-quit', listener)
+    return () => ipcRenderer.removeListener('app-before-quit', listener)
+  },
+  notifyCleanupDone: () => ipcRenderer.send('app-cleanup-done')
 })

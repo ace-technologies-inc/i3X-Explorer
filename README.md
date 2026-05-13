@@ -6,12 +6,20 @@ The official cross-platform desktop application for browsing and monitoring [I3X
 
 ## Features
 
-- Connect to any I3X-compliant server
-- Browse hierarchical data: Namespaces → Object Types → Objects
-- Tree auto-refresh: expanding a branch re-fetches from the server; 30s background poll keeps data current
-- View object details, metadata, and current values
-- Subscribe to objects for real-time updates via SSE
-- Search and filter the object tree
+- Connect to any I3X-compliant server (auto-detects v0, v1-beta, and v1 wire formats)
+- Three browse views in one tree:
+  - **Namespaces** → Object Types → Object Instances
+  - **Objects** (flat list of every instance the server exposes)
+  - **Hierarchy** (parent/child structure, with one root per upstream server when fronting a wrapper)
+- Inline filter bar pinned at the top of the tree; deep matches surface their ancestor namespaces, types, and hierarchy parents so they stay visible
+- Top-level folders auto-expand on search so matches are visible without manual clicks
+- Object counts at every level — folders, namespaces, types, and hierarchy nodes
+- Authoritative chevron state: branches that have no expandable children don't show a chevron, even when the underlying object claims to be compositional
+- View object details, metadata, schema extensions, and current values
+- Relationship graph for non-compositional relationships
+- Subscribe to objects for real-time updates via SSE (with polling fallback) and a trend chart for numeric values
+- Global object search modal (⌘K / Ctrl+K) that navigates and expands to any match by name or elementId
+- Tree auto-refresh: expanding a branch re-fetches from the server; 30s background poll keeps expanded branches current
 - Light and dark theme with toggle button (follows OS preference by default)
 
 ## Installation

@@ -26,6 +26,11 @@ interface ExplorerState {
   allObjects: ObjectInstance[] // flat list of all objects
   hierarchicalRoots: ObjectInstance[] // root objects for the Hierarchy folder (from root=true query)
   childObjects: Map<string, ObjectInstance[]> // keyed by parent elementId
+  // elementId → count of qualifying compositional children (children where
+  // isComposition && parentId === this elementId). Resolved authoritatively
+  // via batched POST /objects/related so it never disagrees with the render
+  // filter applied at expansion time. Also drives chevron state (count > 0).
+  compositionCache: Map<string, number>
   expandedNodes: Set<string>
   selectedItem: SelectedItem | null
   isLoading: boolean
@@ -39,6 +44,7 @@ interface ExplorerState {
   setAllObjects: (objects: ObjectInstance[]) => void
   setHierarchicalRoots: (roots: ObjectInstance[]) => void
   setChildObjects: (parentId: string, children: ObjectInstance[]) => void
+  mergeCompositionFlags: (entries: Iterable<[string, number]>) => void
   toggleNode: (nodeId: string) => void
   expandNode: (nodeId: string) => void
   collapseNode: (nodeId: string) => void
@@ -57,6 +63,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   allObjects: [],
   hierarchicalRoots: [],
   childObjects: new Map(),
+  compositionCache: new Map(),
   expandedNodes: new Set(),
   selectedItem: null,
   isLoading: false,
@@ -82,6 +89,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const updated = new Map(current)
     updated.set(parentId, children)
     set({ childObjects: updated })
+  },
+
+  mergeCompositionFlags: (entries) => {
+    const current = get().compositionCache
+    const updated = new Map(current)
+    for (const [id, flag] of entries) updated.set(id, flag)
+    set({ compositionCache: updated })
   },
 
   toggleNode: (nodeId) => {
@@ -122,6 +136,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     allObjects: [],
     hierarchicalRoots: [],
     childObjects: new Map(),
+    compositionCache: new Map(),
     expandedNodes: new Set(),
     selectedItem: null,
     isLoading: false,

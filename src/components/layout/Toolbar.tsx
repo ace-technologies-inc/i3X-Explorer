@@ -51,7 +51,7 @@ export function Toolbar() {
     disconnect: disconnectStore
   } = useConnectionStore()
 
-  const { setNamespaces, setObjectTypes, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh } = useExplorerStore()
+  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh } = useExplorerStore()
   const { clearAll: clearSubscriptions } = useSubscriptionsStore()
 
   useEffect(() => {
@@ -95,6 +95,13 @@ export function Toolbar() {
         setNamespaces(namespaces)
         setObjectTypes(objectTypes)
         setLoading(false)
+
+        // Fire-and-forget: prefetch flat object list + hierarchy roots so the
+        // tree's [count] indicators show before the user expands those folders.
+        // Doesn't block the connect flow; expansion later refetches with
+        // composition resolution, so chevron accuracy isn't affected.
+        client.getObjects().then(setAllObjects).catch(() => {})
+        client.getObjects(undefined, false, true).then(setHierarchicalRoots).catch(() => {})
       } else {
         setError('Failed to connect to server')
         destroyClient()

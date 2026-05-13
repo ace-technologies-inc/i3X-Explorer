@@ -20,13 +20,28 @@ ipcMain.handle('safe-storage-decrypt', (_event, encrypted: string) => {
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
 })
 
-// IPC handler to open DevTools
+// IPC handler to toggle DevTools (open if closed, close if open)
 ipcMain.handle('open-devtools', (event) => {
   const webContents = event.sender
-  webContents.openDevTools({ mode: 'detach' })
+  if (webContents.isDevToolsOpened()) {
+    webContents.closeDevTools()
+  } else {
+    webContents.openDevTools({ mode: 'detach' })
+  }
 })
 
 let mainWindow: BrowserWindow | null = null
+
+// Coordinates renderer cleanup (closing SSE streams, deleting server-side
+// subscriptions) before the app exits. Without this the process is killed
+// while subscriptions are still registered server-side.
+let cleanupRan = false
+let cleanupAck: (() => void) | null = null
+
+ipcMain.on('app-cleanup-done', () => {
+  cleanupAck?.()
+  cleanupAck = null
+})
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
@@ -89,6 +104,26 @@ app.whenReady().then(() => {
   }
 
   createWindow()
+})
+
+app.on('before-quit', async (event) => {
+  if (cleanupRan) return
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    cleanupRan = true
+    return
+  }
+
+  event.preventDefault()
+
+  mainWindow.webContents.send('app-before-quit')
+
+  await new Promise<void>((resolve) => {
+    cleanupAck = resolve
+    setTimeout(resolve, 3000)
+  })
+
+  cleanupRan = true
+  app.quit()
 })
 
 app.on('window-all-closed', () => {

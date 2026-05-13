@@ -122,6 +122,7 @@ html, body, #root {
   @apply bg-i3x-border hover:bg-i3x-primary transition-colors cursor-col-resize;
 }
 
+
 .resize-handle-horizontal {
   @apply cursor-row-resize;
 }

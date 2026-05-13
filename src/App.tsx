@@ -1,4 +1,7 @@
+import { useEffect } from 'react'
 import { useConnectionStore } from './stores/connection'
+import { useSubscriptionsStore } from './stores/subscriptions'
+import { getClient } from './api/client'
 import { Toolbar } from './components/layout/Toolbar'
 import { Sidebar } from './components/layout/Sidebar'
 import { MainPanel } from './components/layout/MainPanel'
@@ -9,6 +12,21 @@ import { UpdateChecker } from './components/updater/UpdateChecker'
 
 function App() {
   const { showConnectionDialog } = useConnectionStore()
+
+  useEffect(() => {
+    if (!window.electronAPI?.onAppBeforeQuit) return
+    return window.electronAPI.onAppBeforeQuit(async () => {
+      try {
+        const client = getClient()
+        if (client) {
+          const ids = Array.from(useSubscriptionsStore.getState().subscriptions.keys())
+          await Promise.allSettled(ids.map((id) => client.deleteSubscription(id)))
+        }
+      } finally {
+        window.electronAPI?.notifyCleanupDone()
+      }
+    })
+  }, [])
 
   return (
     <div className="h-full flex flex-col bg-i3x-bg">
