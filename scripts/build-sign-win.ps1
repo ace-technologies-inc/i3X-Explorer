@@ -143,10 +143,12 @@ $DlibDll       = Join-Path $DlibDir 'bin\x64\Azure.CodeSigning.Dlib.dll'
 $DlibCacheFile = Join-Path $DlibDir '.version'  # tracks which version is cached
 
 # Wipe cache if it contains a different version
-$cachedVersion = if (Test-Path $DlibCacheFile) { Get-Content $DlibCacheFile -Raw | ForEach-Object { $_.Trim() } } else { $null }
-if ($cachedVersion -and $cachedVersion -ne $DlibVersion) {
-    Write-Warn "Cached dlib v$cachedVersion is outdated (need v$DlibVersion) — clearing cache..."
-    Remove-Item -Recurse -Force $DlibDir
+$cachedVersion = if (Test-Path $DlibCacheFile) { (Get-Content $DlibCacheFile -Raw).Trim() } else { $null }
+if ($cachedVersion -ne $DlibVersion) {
+    if ($cachedVersion) {
+        Write-Warn "Cached dlib v$cachedVersion is outdated (need v$DlibVersion) — clearing cache..."
+    }
+    if (Test-Path $DlibDir) { Remove-Item -Recurse -Force $DlibDir }
 }
 
 if (-not (Test-Path $DlibDll)) {
