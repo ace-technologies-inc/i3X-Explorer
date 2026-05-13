@@ -13,6 +13,7 @@
     "dist-electron/**/*"
   ],
   "afterSign": "scripts/notarize.cjs",
+  "afterPack": "scripts/afterPackLinux.cjs",
   "mac": {
     "notarize": false,
     "target": [
@@ -85,7 +86,6 @@
         "arch": ["x64", "arm64"]
       }
     ],
-    "executableArgs": ["--no-sandbox"],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "icon": "build/icons",
     "category": "Development",
