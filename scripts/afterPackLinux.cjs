@@ -29,7 +29,7 @@ exports.default = async function afterPack(context) {
   fs.renameSync(exePath, realExePath)
 
   fs.writeFileSync(exePath,
-    `#!/bin/bash\nexec "$(dirname "$(readlink -f "$0")")/${realExeName}" --no-sandbox "$@"\n`,
+    `#!/bin/bash\nexport ELECTRON_OZONE_PLATFORM_HINT=auto\nexec "$(dirname "$(readlink -f "$0")")/${realExeName}" --no-sandbox "$@"\n`,
     { mode: 0o755 }
   )
 
