@@ -222,7 +222,7 @@ export function ConnectionDialog() {
                 className="w-3.5 h-3.5 accent-i3x-primary cursor-pointer"
               />
               <label htmlFor="ignore-cert-errors" className="text-xs text-i3x-text-muted cursor-pointer select-none">
-                Ignore certificate errors (for self-signed / dev servers)
+                Ignore certificate errors (eg: self-signed)
               </label>
             </div>
           )}
