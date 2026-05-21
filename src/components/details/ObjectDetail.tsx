@@ -16,10 +16,18 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
   const [valueError, setValueError] = useState<string | null>(null)
   const [isRawDataExpanded, setIsRawDataExpanded] = useState(false)
 
-  const { activeSubscriptionId, addMonitoredItem, setBottomPanelExpanded } = useSubscriptionsStore()
+  const [isSubscribing, setIsSubscribing] = useState(false)
+  const [subscribeError, setSubscribeError] = useState<string | null>(null)
+
+  const { activeSubscriptionId, addMonitoredItem, removeSubscription, setBottomPanelExpanded } = useSubscriptionsStore()
 
   useEffect(() => {
     loadValue()
+  }, [object.elementId])
+
+  // Clear subscribe error when the selected object changes
+  useEffect(() => {
+    setSubscribeError(null)
   }, [object.elementId])
 
   const loadValue = async () => {
@@ -43,6 +51,12 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
     const client = getClient()
     if (!client) return
 
+    setIsSubscribing(true)
+    setSubscribeError(null)
+
+    // Track any subscription we create so we can roll it back if register fails
+    let newlyCreatedSubId: string | null = null
+
     try {
       let subscriptionId = activeSubscriptionId
 
@@ -50,6 +64,7 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
       if (!subscriptionId) {
         const response = await client.createSubscription()
         subscriptionId = response.subscriptionId
+        newlyCreatedSubId = subscriptionId
 
         useSubscriptionsStore.getState().addSubscription({
           id: subscriptionId,
@@ -59,14 +74,22 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
         })
       }
 
-      // Register this object
+      // Register this object — if this throws, the catch block cleans up
       await client.registerMonitoredItems(subscriptionId, [object.elementId])
       addMonitoredItem(subscriptionId, object.elementId)
-
-      // Expand the subscriptions panel
       setBottomPanelExpanded(true)
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Subscribe failed'
+      setSubscribeError(msg)
       console.error('Failed to subscribe:', err)
+
+      // Roll back any subscription we just created so it doesn't sit empty in the UI
+      if (newlyCreatedSubId) {
+        removeSubscription(newlyCreatedSubId)
+        try { await client.deleteSubscription(newlyCreatedSubId) } catch { /* best-effort */ }
+      }
+    } finally {
+      setIsSubscribing(false)
     }
   }
 
@@ -79,12 +102,20 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
           </h2>
           <p className="text-sm text-i3x-text-muted">Object Instance</p>
         </div>
-        <button
-          onClick={handleSubscribe}
-          className="px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 transition-colors"
-        >
-          Subscribe
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={handleSubscribe}
+            disabled={isSubscribing}
+            className="px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isSubscribing ? 'Subscribing...' : 'Subscribe'}
+          </button>
+          {subscribeError && (
+            <span className="text-xs text-i3x-error max-w-[200px] text-right" title={subscribeError}>
+              {subscribeError}
+            </span>
+          )}
+        </div>
       </div>
 
       {object.description && (

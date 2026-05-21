@@ -11,7 +11,12 @@ import { ConnectionDialog } from './components/connection/ConnectionDialog'
 import { UpdateChecker } from './components/updater/UpdateChecker'
 
 function App() {
-  const { showConnectionDialog } = useConnectionStore()
+  const { showConnectionDialog, ignoreCertErrors } = useConnectionStore()
+
+  // Sync persisted ignoreCertErrors to main process on startup
+  useEffect(() => {
+    window.electronAPI?.setIgnoreCertErrors(ignoreCertErrors)
+  }, [])
 
   useEffect(() => {
     if (!window.electronAPI?.onAppBeforeQuit) return

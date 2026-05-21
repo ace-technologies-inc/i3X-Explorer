@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build i3X Explorer for all platforms
-# Usage: ./scripts/build-all.sh [mac|win|linux|all]
+# Usage: ./scripts/build-all.sh [mac|win|linux|web|all]
 
 set -e
 
@@ -80,11 +80,21 @@ case "$TARGET" in
     linux)
         npx electron-builder --config electron-builder.json --linux --publish never
         ;;
+    web)
+        npm run build:web
+        mkdir -p "$PROJECT_DIR/release/${VERSION}"
+        (cd "$PROJECT_DIR/dist-web" && zip -r "$PROJECT_DIR/release/${VERSION}/i3x-explorer-${VERSION}-web.zip" .)
+        ;;
     all)
         npx electron-builder --config electron-builder.json --mac --win --linux --publish never
+
+        echo ""
+        echo "Building web version..."
+        npm run build:web
+        (cd "$PROJECT_DIR/dist-web" && zip -r "$PROJECT_DIR/release/${VERSION}/i3x-explorer-${VERSION}-web.zip" .)
         ;;
     *)
-        echo "Usage: $0 [mac|win|linux|all]"
+        echo "Usage: $0 [mac|win|linux|web|all]"
         exit 1
         ;;
 esac

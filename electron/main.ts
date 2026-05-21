@@ -37,6 +37,23 @@ ipcMain.handle('open-devtools', (event) => {
   }
 })
 
+let ignoreCertErrors = false
+
+// Allow renderer to toggle certificate error bypass at runtime.
+// Needed for dev servers using self-signed certs.
+ipcMain.on('set-ignore-cert-errors', (_event, flag: boolean) => {
+  ignoreCertErrors = flag
+})
+
+app.on('certificate-error', (event, _webContents, _url, _error, _certificate, callback) => {
+  if (ignoreCertErrors) {
+    event.preventDefault()
+    callback(true)
+  } else {
+    callback(false)
+  }
+})
+
 let mainWindow: BrowserWindow | null = null
 
 // Coordinates renderer cleanup (closing SSE streams, deleting server-side

@@ -13,7 +13,7 @@ async function init() {
   // Fetch runtime config — lets server operators override defaults without rebuilding.
   // Only applied on first visit; localStorage values take priority for returning users.
   try {
-    const res = await fetch('/config.json')
+    const res = await fetch('./config.json')
     if (res.ok) {
       const config: SiteConfig = await res.json()
       const hasExistingState = !!localStorage.getItem('i3x-connection')

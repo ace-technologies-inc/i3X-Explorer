@@ -9,6 +9,7 @@ interface Window {
     encryptString: (plaintext: string) => Promise<string | null>
     decryptString: (encrypted: string) => Promise<string | null>
     openDevTools: () => Promise<void>
+    setIgnoreCertErrors: (flag: boolean) => void
     onAppBeforeQuit: (callback: () => void) => () => void
     notifyCleanupDone: () => void
   }

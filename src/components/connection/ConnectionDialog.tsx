@@ -2,16 +2,20 @@ import { useState } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import type { Credentials } from '../../stores/connection'
 
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+
 type AuthMethod = 'none' | 'basic' | 'bearer' | 'header'
 
 export function ConnectionDialog() {
   const {
     serverUrl,
     recentUrls,
+    ignoreCertErrors: storedIgnoreCertErrors,
     setServerUrl,
     setCredentials,
     saveCredentialsForUrl,
     getCredentialsForUrl,
+    setIgnoreCertErrors,
     setShowConnectionDialog
   } = useConnectionStore()
 
@@ -25,6 +29,7 @@ export function ConnectionDialog() {
   }
 
   const [inputUrl, setInputUrl] = useState(serverUrl)
+  const [ignoreCertErrors, setLocalIgnoreCertErrors] = useState(storedIgnoreCertErrors)
   const [authMethod, setAuthMethod] = useState<AuthMethod>(getInitialAuthMethod())
   const [username, setUsername] = useState(savedCreds?.type === 'basic' ? savedCreds.username : '')
   const [password, setPassword] = useState(savedCreds?.type === 'basic' ? savedCreds.password : '')
@@ -44,6 +49,8 @@ export function ConnectionDialog() {
     }
     setCredentials(newCredentials)
     saveCredentialsForUrl(inputUrl, newCredentials)
+    setIgnoreCertErrors(ignoreCertErrors)
+    window.electronAPI?.setIgnoreCertErrors(ignoreCertErrors)
     setShowConnectionDialog(false)
   }
 
@@ -202,6 +209,21 @@ export function ConnectionDialog() {
                   className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
                 />
               </div>
+            </div>
+          )}
+
+          {isElectron && (
+            <div className="flex items-center gap-2">
+              <input
+                id="ignore-cert-errors"
+                type="checkbox"
+                checked={ignoreCertErrors}
+                onChange={(e) => setLocalIgnoreCertErrors(e.target.checked)}
+                className="w-3.5 h-3.5 accent-i3x-primary cursor-pointer"
+              />
+              <label htmlFor="ignore-cert-errors" className="text-xs text-i3x-text-muted cursor-pointer select-none">
+                Ignore certificate errors (for self-signed / dev servers)
+              </label>
             </div>
           )}
 
