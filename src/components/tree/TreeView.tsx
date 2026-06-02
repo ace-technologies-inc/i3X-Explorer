@@ -54,7 +54,12 @@ const FolderTypeIcon = () => (
 const ObjectClassIcon = () => <span>📦</span>
 const VariableClassIcon = () => <span>📊</span>
 
-function bucketInstance(obj: ObjectInstance | undefined): 'object' | 'variable' | 'other' {
+const SCALAR_TYPES = new Set(['number', 'integer', 'string', 'boolean'])
+
+function bucketInstance(
+  obj: ObjectInstance | undefined,
+  typeIndex?: Map<string, ObjectType>
+): 'object' | 'variable' | 'other' {
   if (!obj) return 'other'
   const sys = (obj.metadata?.system ?? {}) as Record<string, unknown>
   const nodeClass = String(sys.nodeClass ?? '').toLowerCase()
@@ -65,6 +70,9 @@ function bucketInstance(obj: ObjectInstance | undefined): 'object' | 'variable' 
   const t = `${obj.typeId} ${String(obj.metadata?.sourceTypeId ?? '')}`.toLowerCase()
   if (/(variable|tag|datapoint|dataitem|measurement|sensor)/.test(t)) return 'variable'
   if (/(object|device|equipment|asset|machine|component)/.test(t)) return 'object'
+  // Final fallback: scalar schema.type on the Object Type is the i3X-native leaf signal.
+  const schemaType = String(typeIndex?.get(obj.typeId)?.schema?.type ?? '')
+  if (SCALAR_TYPES.has(schemaType)) return 'variable'
   return 'other'
 }
 const NamespaceIcon = () => <span className="text-i3x-primary">🌐</span>
@@ -91,10 +99,15 @@ interface TreeNodeProps {
 }
 
 function TreeNode({ id, label, type, data, depth, hasChildren, count, children }: TreeNodeProps) {
-  const { expandedNodes, selectedItem, toggleNode, selectItem, setObjects, setAllObjects, setHierarchicalRoots, setChildObjects } = useExplorerStore()
+  const { expandedNodes, selectedItem, toggleNode, selectItem, setObjects, setAllObjects, setHierarchicalRoots, setChildObjects, objectTypes } = useExplorerStore()
 
   const isExpanded = expandedNodes.has(id)
   const isSelected = selectedItem?.id === id
+
+  const typeIndex = useMemo(
+    () => new Map(objectTypes.map(t => [t.elementId, t])),
+    [objectTypes]
+  )
 
   const handleClick = useCallback(async () => {
     // Select the item
@@ -210,7 +223,7 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
           return <FolderTypeIcon />
         }
         // Otherwise bucket into one of three lowest-common-denominator classes.
-        switch (bucketInstance(obj)) {
+        switch (bucketInstance(obj, typeIndex)) {
           case 'variable': return <VariableClassIcon />
           default: return <ObjectClassIcon />
         }
