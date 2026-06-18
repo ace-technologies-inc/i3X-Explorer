@@ -10,6 +10,30 @@ interface HistoryDataPoint {
   quality?: string
 }
 
+// Timespan presets
+type TimespanPreset = '15s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h' | '6h' | '24h' | '7d' | '30d' | 'custom'
+
+interface TimespanOption {
+  value: TimespanPreset
+  label: string
+  ms?: number
+}
+
+const TIMESPAN_OPTIONS: TimespanOption[] = [
+  { value: '15s', label: '15 seconds', ms: 15 * 1000 },
+  { value: '30s', label: '30 seconds', ms: 30 * 1000 },
+  { value: '1m', label: '1 minute', ms: 60 * 1000 },
+  { value: '5m', label: '5 minutes', ms: 5 * 60 * 1000 },
+  { value: '15m', label: '15 minutes', ms: 15 * 60 * 1000 },
+  { value: '30m', label: '30 minutes', ms: 30 * 60 * 1000 },
+  { value: '1h', label: '1 hour', ms: 60 * 60 * 1000 },
+  { value: '6h', label: '6 hours', ms: 6 * 60 * 60 * 1000 },
+  { value: '24h', label: '24 hours', ms: 24 * 60 * 60 * 1000 },
+  { value: '7d', label: '7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+  { value: '30d', label: '30 days', ms: 30 * 24 * 60 * 60 * 1000 },
+  { value: 'custom', label: 'Custom range' }
+]
+
 // Chart constants
 const CHART_HEIGHT = 100
 const PADDING = { top: 10, right: 10, bottom: 25, left: 50 }
@@ -22,6 +46,11 @@ export function HistoryPanel() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasLoaded, setHasLoaded] = useState(false)
+
+  // Timespan selection state
+  const [selectedTimespan, setSelectedTimespan] = useState<TimespanPreset>('1h')
+  const [customStartTime, setCustomStartTime] = useState('')
+  const [customEndTime, setCustomEndTime] = useState('')
 
   const selectedItem = useExplorerStore((state) => state.selectedItem)
   const isConnected = useConnectionStore((state) => state.isConnected)
@@ -50,8 +79,23 @@ export function HistoryPanel() {
     setError(null)
 
     try {
-      const endTime = new Date().toISOString()
-      const startTime = new Date(Date.now() - 60 * 60 * 1000).toISOString() // 1 hour ago
+      let startTime: string
+      let endTime: string
+
+      if (selectedTimespan === 'custom') {
+        if (!customStartTime || !customEndTime) {
+          setError('Please select both start and end times')
+          setIsLoading(false)
+          return
+        }
+        startTime = new Date(customStartTime).toISOString()
+        endTime = new Date(customEndTime).toISOString()
+      } else {
+        const preset = TIMESPAN_OPTIONS.find(o => o.value === selectedTimespan)
+        const ms = preset?.ms ?? 60 * 60 * 1000
+        endTime = new Date().toISOString()
+        startTime = new Date(Date.now() - ms).toISOString()
+      }
 
       const result: HistoricalValue = await client.getHistory(
         selectedElementId,
@@ -88,7 +132,7 @@ export function HistoryPanel() {
     } finally {
       setIsLoading(false)
     }
-  }, [selectedElementId, isObjectSelected, isConnected, isCollapsed])
+  }, [selectedElementId, isObjectSelected, isConnected, isCollapsed, selectedTimespan, customStartTime, customEndTime])
 
   const handleMouseDown = useCallback(() => {
     if (isCollapsed) return
@@ -179,28 +223,99 @@ export function HistoryPanel() {
               <p className="text-xs text-i3x-error">{error}</p>
             )}
             {!error && historyData.length === 0 && !isLoading && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-3">
                 {isObjectSelected ? (
-                  hasLoaded ? (
-                    <p className="text-xs text-i3x-text-muted">No history data available for the past hour.</p>
-                  ) : (
-                    <button
-                      onClick={fetchHistory}
-                      className="px-3 py-1 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80"
-                    >
-                      Load History
-                    </button>
-                  )
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={selectedTimespan}
+                        onChange={(e) => setSelectedTimespan(e.target.value as TimespanPreset)}
+                        className="px-2 py-1 text-xs bg-i3x-surface border border-i3x-border rounded text-i3x-text focus:outline-none focus:ring-1 focus:ring-i3x-primary"
+                      >
+                        {TIMESPAN_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={fetchHistory}
+                        disabled={selectedTimespan === 'custom' && (!customStartTime || !customEndTime)}
+                        className="px-3 py-1 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Load History
+                      </button>
+                    </div>
+                    {selectedTimespan === 'custom' && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="text-xs text-i3x-text-muted">From:</label>
+                        <input
+                          type="datetime-local"
+                          value={customStartTime}
+                          onChange={(e) => setCustomStartTime(e.target.value)}
+                          className="px-2 py-1 text-xs bg-i3x-surface border border-i3x-border rounded text-i3x-text focus:outline-none focus:ring-1 focus:ring-i3x-primary"
+                        />
+                        <label className="text-xs text-i3x-text-muted">To:</label>
+                        <input
+                          type="datetime-local"
+                          value={customEndTime}
+                          onChange={(e) => setCustomEndTime(e.target.value)}
+                          className="px-2 py-1 text-xs bg-i3x-surface border border-i3x-border rounded text-i3x-text focus:outline-none focus:ring-1 focus:ring-i3x-primary"
+                        />
+                      </div>
+                    )}
+                    {hasLoaded && (
+                      <p className="text-xs text-i3x-text-muted">No history data available for the selected time range.</p>
+                    )}
+                  </>
                 ) : (
                   <p className="text-xs text-i3x-text-muted">Select an object to view history.</p>
                 )}
               </div>
             )}
-            {!error && historyData.length > 0 && dataType === 'numeric' && (
-              <HistoryTrendChart data={historyData} />
-            )}
-            {!error && historyData.length > 0 && dataType !== 'numeric' && dataType !== 'empty' && (
-              <HistoryTable data={historyData} />
+            {!error && historyData.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={selectedTimespan}
+                    onChange={(e) => setSelectedTimespan(e.target.value as TimespanPreset)}
+                    className="px-2 py-1 text-xs bg-i3x-surface border border-i3x-border rounded text-i3x-text focus:outline-none focus:ring-1 focus:ring-i3x-primary"
+                  >
+                    {TIMESPAN_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedTimespan === 'custom' && (
+                    <>
+                      <label className="text-xs text-i3x-text-muted">From:</label>
+                      <input
+                        type="datetime-local"
+                        value={customStartTime}
+                        onChange={(e) => setCustomStartTime(e.target.value)}
+                        className="px-2 py-1 text-xs bg-i3x-surface border border-i3x-border rounded text-i3x-text focus:outline-none focus:ring-1 focus:ring-i3x-primary"
+                      />
+                      <label className="text-xs text-i3x-text-muted">To:</label>
+                      <input
+                        type="datetime-local"
+                        value={customEndTime}
+                        onChange={(e) => setCustomEndTime(e.target.value)}
+                        className="px-2 py-1 text-xs bg-i3x-surface border border-i3x-border rounded text-i3x-text focus:outline-none focus:ring-1 focus:ring-i3x-primary"
+                      />
+                    </>
+                  )}
+                  <button
+                    onClick={fetchHistory}
+                    disabled={isLoading || (selectedTimespan === 'custom' && (!customStartTime || !customEndTime))}
+                    className="px-3 py-1 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? 'Loading...' : 'Reload'}
+                  </button>
+                </div>
+                {dataType === 'numeric' && <HistoryTrendChart data={historyData} />}
+                {dataType !== 'numeric' && dataType !== 'empty' && <HistoryTable data={historyData} />}
+              </div>
             )}
           </div>
 
@@ -224,11 +339,11 @@ function isValidNumber(value: unknown): value is number {
   return !isNaN(num) && isFinite(num)
 }
 
-// Trend chart for numeric data
+// Trend chart for numeric data (area chart with fill)
 function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
-  const { path, yMin, yMax, yTicks, xLabels, plotWidth, chartWidth } = useMemo(() => {
+  const { linePath, areaPath, yMin, yMax, yTicks, xLabels, plotWidth, chartWidth } = useMemo(() => {
     if (data.length < 2) {
-      return { path: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
+      return { linePath: '', areaPath: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
     }
 
     // Convert values to numbers, preserving null/NaN as null for gap handling
@@ -247,7 +362,7 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
     // Calculate Y axis range (only from valid values)
     const validValues = points.filter(p => p.value !== null).map(p => p.value as number)
     if (validValues.length === 0) {
-      return { path: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
+      return { linePath: '', areaPath: '', yMin: 0, yMax: 100, yTicks: [], xLabels: [], plotWidth: 0, chartWidth: 0 }
     }
 
     let minVal = validValues.reduce((a, b) => a < b ? a : b, validValues[0])
@@ -269,23 +384,51 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
     const maxTime = points[points.length - 1].timestamp
     const timeRange = maxTime - minTime || 1
 
-    // Generate path with gaps for null values
-    // Use 'M' (move to) after a gap to start a new line segment
-    const pathParts: string[] = []
-    let inGap = true // Start as if we're in a gap so first point uses 'M'
+    // Bottom of the chart (for area fill)
+    const bottomY = PADDING.top + plotHeight
+
+    // Generate line path and area path
+    // Area path closes back to the bottom to create a filled region
+    const linePathParts: string[] = []
+    const areaSegments: string[] = []
+    let currentAreaSegment: { x: number; y: number }[] = []
 
     for (const point of points) {
       const x = PADDING.left + ((point.timestamp - minTime) / timeRange) * plotWidth
 
       if (point.value === null) {
-        // Mark that we're in a gap - next valid point will start new segment
-        inGap = true
+        // Close current area segment if we have points
+        if (currentAreaSegment.length > 0) {
+          const firstX = currentAreaSegment[0].x
+          const lastX = currentAreaSegment[currentAreaSegment.length - 1].x
+          let segmentPath = `M ${firstX} ${bottomY}`
+          for (const pt of currentAreaSegment) {
+            segmentPath += ` L ${pt.x} ${pt.y}`
+          }
+          segmentPath += ` L ${lastX} ${bottomY} Z`
+          areaSegments.push(segmentPath)
+          currentAreaSegment = []
+        }
       } else {
         const y = PADDING.top + plotHeight - ((point.value - minVal) / (maxVal - minVal)) * plotHeight
-        // Use 'M' if starting after a gap, 'L' to continue line
-        pathParts.push(`${inGap ? 'M' : 'L'} ${x} ${y}`)
-        inGap = false
+        // Line path
+        const isFirst = linePathParts.length === 0 || currentAreaSegment.length === 0
+        linePathParts.push(`${isFirst ? 'M' : 'L'} ${x} ${y}`)
+        // Track for area fill
+        currentAreaSegment.push({ x, y })
       }
+    }
+
+    // Close final area segment
+    if (currentAreaSegment.length > 0) {
+      const firstX = currentAreaSegment[0].x
+      const lastX = currentAreaSegment[currentAreaSegment.length - 1].x
+      let segmentPath = `M ${firstX} ${bottomY}`
+      for (const pt of currentAreaSegment) {
+        segmentPath += ` L ${pt.x} ${pt.y}`
+      }
+      segmentPath += ` L ${lastX} ${bottomY} Z`
+      areaSegments.push(segmentPath)
     }
 
     // Generate X labels
@@ -296,7 +439,8 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
     ]
 
     return {
-      path: pathParts.join(' '),
+      linePath: linePathParts.join(' '),
+      areaPath: areaSegments.join(' '),
       yMin: minVal,
       yMax: maxVal,
       yTicks,
@@ -364,9 +508,17 @@ function HistoryTrendChart({ data }: { data: HistoryDataPoint[] }) {
           </text>
         ))}
 
+        {/* Area fill */}
+        <path
+          d={areaPath}
+          fill="rgb(var(--i3x-primary))"
+          fillOpacity={0.6}
+          stroke="none"
+        />
+
         {/* Data line */}
         <path
-          d={path}
+          d={linePath}
           fill="none"
           stroke="rgb(var(--i3x-primary))"
           strokeWidth="2"
