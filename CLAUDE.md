@@ -162,10 +162,13 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - Expand compositional objects to see children
 - Tree auto-refresh: expanding a branch always re-fetches from the server; 30s background poll refreshes all expanded branches
 - View object details, metadata, and current values
-- Relationship graph visualization for non-compositional relationships; click any node to navigate and expand it in the sidebar tree; hover nodes for full-name tooltip
+- Current Value pane has a **Parsed / Raw** toggle — Raw shows the untouched HTTP response body; for composition objects the component rows middle-truncate the elementId and round numeric values, with full id/value/timestamp on hover
+- Copy-to-clipboard floating icon on every JSON pane (object data, schema, raw value, etc.)
+- Relationship graph visualization for non-compositional relationships; click any node to navigate and expand it in the sidebar tree; hover nodes for full-name tooltip. The canvas sizes to its content and keeps the node cluster centered
 - Subscribe to objects for real-time updates (polling or SSE); subscriptions auto-recover transparently on server-side expiry (HTTP 404/410)
 - Trend chart for numeric subscription values
-- Search/filter tree nodes (inline sidebar filter)
+- Search/filter tree nodes (inline sidebar filter); tree scrolls horizontally for long/deeply-nested labels
+- Collapse/expand the tree (sidebar) panel via the panel-toggle button at the left of the toolbar
 - Global object search modal (🔍 toolbar icon or ⌘K / Ctrl+K) — searches all objects by name or elementId, shows breadcrumb path, navigates to and expands the match in the tree (Hierarchy preferred, Objects flat as fallback)
 - Light/dark theme toggle (persists across restarts; falls back to OS preference)
 - Web deployment: `dist-web/` can be served as a static site; `config.json` pre-populates the server URL and recent connections list on first visit
@@ -458,6 +461,22 @@ location / {
 - Clicking a node in `RelationshipGraph` navigates to that object in the sidebar tree
 - Uses the same atomic ancestor expansion pattern as SearchModal: reads fresh state via `useExplorerStore.getState()` (not stale closure), builds a complete `newExpanded` Set from the current `expandedNodes`, then commits in one `setState` call before invoking `selectItem`
 - Guards `allObjects` and `hierarchicalRoots` independently — either can be empty without triggering the other's fetch
+
+### Relationship Graph Layout
+- The SVG canvas is **derived from content**, not fixed. A single `useMemo` measures each node's circular offset (`halfX`/`halfY` = furthest horizontal/vertical reach), then computes `width`/`height`, the cluster center, node `positions`, and legend position. Sparse or vertically-stacked layouts don't reach the full `RADIUS`, so the canvas shrinks to fit
+- The node cluster is **always centered both axes**: `centerX = width/2`, `centerY = CANVAS_PAD + halfY`. Because center is *defined* as the canvas center, nodes can't drift to one side. The legend is a fixed-size band (`LEGEND_WIDTH`/`LEGEND_HEIGHT`) centered along the bottom (`legendX = (width - LEGEND_WIDTH)/2`) so it no longer skews horizontal centering
+- The SVG is responsive: `viewBox="0 0 {width} {height}"` with `style={{ maxWidth: '100%', height: 'auto' }}`, so it scales down when the pane is cramped while the column sizes to the graph's natural width
+- Changing node box size / spacing only requires editing `BOX_WIDTH`, `BOX_HEIGHT`, `RADIUS`; legend sizing via the `LEGEND_*` constants
+
+### Object Detail Pane (`ObjectDetail` / `ValueDisplay`)
+- **Parsed / Raw value toggle**: a segmented control in the Current Value header (state `valueView` in `ObjectDetail`). Raw renders `value.rawResponse` (the untouched HTTP body) via `JsonViewer`. `client.getValue` retains that body on `LastKnownValue.rawResponse` for both v1 and v0; the batch `getValues` does **not** (only the single-object detail pane needs it)
+- **Component rows** (composition values): the elementId is middle-truncated with a two-span flex trick (head ellipsizes, last `COMPONENT_ID_TAIL` chars stay pinned); numeric values are rounded via `formatComponentValueShort` (`toPrecision(6)` → `Number()` to strip trailing zeros, keeps exponential form). Full id / full-precision value / full timestamp are all in `title` tooltips
+- **Copy-to-clipboard**: `CopyButton` (`src/components/details/CopyButton.tsx`) is a floating corner icon embedded in `JsonViewer`, so every JSON pane gets it for free. Uses `navigator.clipboard`, `stopPropagation` (so it doesn't trigger the collapsed-view expand), and fails silently in insecure contexts
+- **Responsive layout**: graph + value sit side-by-side and stack below **1140px** via Tailwind's arbitrary `min-[1140px]:` variant. The value column carries `min-w-0` so it can shrink and let `ValueDisplay`'s internal truncation engage instead of forcing the pane wide (a classic flexbox `min-width:auto` overflow); the metadata bar uses `flex-wrap`
+
+### Sidebar Collapse & Tree Horizontal Scroll
+- **Collapse**: `sidebarCollapsed` + `toggleSidebar()` live in the explorer store; the panel-toggle button is at the left of the `Toolbar`. `Sidebar` returns `null` when collapsed but stays mounted, so its drag-`width` state is preserved and restored on expand
+- **Horizontal scroll**: tree labels use `whitespace-nowrap` (not `truncate`) so rows grow to natural width; the tree body is a both-axes scroll area with an inner `w-max min-w-full` wrapper (rows share a uniform width — highlights and count leader-lines stay correct — and overflow horizontally). The filter input is a fixed header above the scroll body so it neither stretches nor scrolls away
 
 ### Subscription Recovery
 - `src/api/subscription.ts` exports `HttpStatusError` (carries `.status: number`) and `isSubscriptionGoneError(error)` helper

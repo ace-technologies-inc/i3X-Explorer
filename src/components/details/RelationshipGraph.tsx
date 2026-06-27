@@ -19,9 +19,19 @@ interface RelatedObject {
 // Layout constants
 const BOX_WIDTH = 140
 const BOX_HEIGHT = 50
-const CENTER_X = 325
-const CENTER_Y = 200
 const RADIUS = 150
+// Horizontal radius is stretched so star-shaped graphs (many spokes) get extra
+// horizontal wiggle room without growing taller. Tune this to taste.
+const RADIUS_X = RADIUS * 1.15
+// Breathing room around the content, and the gap between the node cluster and
+// the legend band beneath it.
+const CANVAS_PAD = 16
+const LEGEND_GAP = 16
+// The legend is a fixed-size band centered along the bottom; the canvas can't be
+// narrower than this no matter how few nodes there are.
+const LEGEND_WIDTH = 360
+const LEGEND_HEIGHT = 40
+const LEGEND_ROW_GAP = 23
 
 // Colors — reference CSS variables so they respond to the active theme
 const COLORS = {
@@ -127,15 +137,35 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
     }
   }
 
-  // Calculate positions for related objects in a circle around the center
-  const positions = useMemo(() => {
-    return relatedObjects.map((_, index) => {
+  // Derive the whole canvas from how far the node circle actually reaches, then
+  // place the cluster dead-center (horizontally and vertically) with the legend
+  // band centered along the bottom. Few or vertically-stacked nodes don't reach
+  // the full radius, so the canvas shrinks to fit — and the nodes never drift to
+  // one side, because the center is always the canvas center.
+  const { width, height, centerX, centerY, positions, legendX, legendY } = useMemo(() => {
+    let halfX = BOX_WIDTH / 2
+    let halfY = BOX_HEIGHT / 2
+    const offsets = relatedObjects.map((_, index) => {
       const angle = (2 * Math.PI * index) / relatedObjects.length - Math.PI / 2
-      return {
-        x: CENTER_X + RADIUS * Math.cos(angle),
-        y: CENTER_Y + RADIUS * Math.sin(angle)
-      }
+      const ox = RADIUS_X * Math.cos(angle)
+      const oy = RADIUS * Math.sin(angle)
+      halfX = Math.max(halfX, Math.abs(ox) + BOX_WIDTH / 2)
+      halfY = Math.max(halfY, Math.abs(oy) + BOX_HEIGHT / 2)
+      return { ox, oy }
     })
+    const width = Math.max(halfX * 2, LEGEND_WIDTH) + CANVAS_PAD * 2
+    const height = CANVAS_PAD + halfY * 2 + LEGEND_GAP + LEGEND_HEIGHT + CANVAS_PAD
+    const centerX = width / 2
+    const centerY = CANVAS_PAD + halfY
+    return {
+      width,
+      height,
+      centerX,
+      centerY,
+      positions: offsets.map(({ ox, oy }) => ({ x: centerX + ox, y: centerY + oy })),
+      legendX: (width - LEGEND_WIDTH) / 2,
+      legendY: height - CANVAS_PAD - LEGEND_HEIGHT,
+    }
   }, [relatedObjects])
 
   if (isLoading) {
@@ -164,7 +194,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
 
   return (
     <div
-      className="w-full overflow-auto relative"
+      className="relative"
       onMouseMove={(e) => {
         if (tooltip) {
           const rect = e.currentTarget.getBoundingClientRect()
@@ -188,9 +218,10 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
         </div>
       )}
       <svg
-        width="650"
-        height="465"
-        style={{ minWidth: '650px', backgroundColor: COLORS.surface, borderRadius: '6px' }}
+        viewBox={`0 0 ${width} ${height}`}
+        width={width}
+        height={height}
+        style={{ maxWidth: '100%', height: 'auto', backgroundColor: COLORS.surface, borderRadius: '6px' }}
       >
         {/* Connection lines */}
         {positions.map((pos, index) => {
@@ -203,8 +234,8 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
           return (
             <line
               key={`line-${index}`}
-              x1={CENTER_X}
-              y1={CENTER_Y}
+              x1={centerX}
+              y1={centerY}
               x2={pos.x}
               y2={pos.y}
               stroke={strokeColor}
@@ -216,7 +247,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
 
         {/* Center object (selected) */}
         <g
-          transform={`translate(${CENTER_X - BOX_WIDTH / 2}, ${CENTER_Y - BOX_HEIGHT / 2})`}
+          transform={`translate(${centerX - BOX_WIDTH / 2}, ${centerY - BOX_HEIGHT / 2})`}
           onMouseEnter={(e) => {
             const rect = e.currentTarget.closest('.relative')!.getBoundingClientRect()
             setTooltip({ label: object.displayName, x: e.clientX - rect.left, y: e.clientY - rect.top })
@@ -307,8 +338,8 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
           )
         })}
 
-        {/* Legend */}
-        <g transform="translate(10, 405)">
+        {/* Legend — centered along the bottom */}
+        <g transform={`translate(${legendX}, ${legendY})`}>
           <line x1="0" y1="10" x2="25" y2="10" stroke={COLORS.warning} strokeWidth="2" />
           <text x="30" y="14" fill={COLORS.textMuted} fontSize="10">Parent/ComponentOf</text>
 
@@ -321,7 +352,7 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
           <line x1="295" y1="10" x2="320" y2="10" stroke={COLORS.border} strokeWidth="2" strokeDasharray="5,5" />
           <text x="325" y="14" fill={COLORS.textMuted} fontSize="10">Other</text>
         </g>
-        <g transform="translate(10, 428)">
+        <g transform={`translate(${legendX}, ${legendY + LEGEND_ROW_GAP})`}>
           <rect x="0" y="2" width="25" height="12" rx="2" fill={COLORS.bg} stroke={COLORS.border} strokeWidth="1.5" strokeDasharray="4,2" />
           <text x="30" y="14" fill={COLORS.textMuted} fontSize="10">Composition</text>
           <rect x="110" y="2" width="25" height="12" rx="2" fill={COLORS.surface} stroke={COLORS.border} strokeWidth="1.5" />

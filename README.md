@@ -12,11 +12,12 @@ The official cross-platform desktop application for browsing and monitoring [I3X
   - **Objects** (flat list of every instance the server exposes)
   - **Hierarchy** (parent/child structure, with one root per upstream server when fronting a wrapper)
 - Inline filter bar pinned at the top of the tree; deep matches surface their ancestor namespaces, types, and hierarchy parents so they stay visible
+- Tree scrolls horizontally for long/deeply-nested labels, and the whole tree panel collapses/expands via the toolbar's panel-toggle button
 - Top-level folders auto-expand on search so matches are visible without manual clicks
 - Object counts at every level — folders, namespaces, types, and hierarchy nodes
 - Authoritative chevron state: branches that have no expandable children don't show a chevron, even when the underlying object claims to be compositional
-- View object details, metadata, schema extensions, and current values
-- Relationship graph for non-compositional relationships; click any node to navigate directly to it in the tree; hover to see full names
+- View object details, metadata, schema extensions, and current values — with a Parsed/Raw toggle to inspect the raw HTTP response, and a copy-to-clipboard icon on every JSON view
+- Relationship graph for non-compositional relationships; click any node to navigate directly to it in the tree; hover to see full names. The graph sizes to its content and stays centered
 - Subscribe to objects for real-time updates via SSE (with polling fallback) and a trend chart for numeric values; subscriptions auto-recover transparently if the server expires them
 - Global object search modal (⌘K / Ctrl+K) that navigates and expands to any match by name or elementId
 - Tree auto-refresh: expanding a branch re-fetches from the server; 30s background poll keeps expanded branches current

@@ -37,6 +37,7 @@ interface ExplorerState {
   searchQuery: string
   pollIntervalMs: number
   manualRefreshTick: number
+  sidebarCollapsed: boolean
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
@@ -53,6 +54,7 @@ interface ExplorerState {
   setSearchQuery: (query: string) => void
   setPollIntervalMs: (ms: number) => void
   triggerManualRefresh: () => void
+  toggleSidebar: () => void
   reset: () => void
 }
 
@@ -70,6 +72,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   searchQuery: '',
   pollIntervalMs: 30_000,
   manualRefreshTick: 0,
+  sidebarCollapsed: false,
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({ objectTypes: types }),
@@ -128,6 +131,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setPollIntervalMs: (ms) => set({ pollIntervalMs: ms }),
   triggerManualRefresh: () => set(state => ({ manualRefreshTick: state.manualRefreshTick + 1 })),
+  toggleSidebar: () => set(state => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
   reset: () => set({
     namespaces: [],

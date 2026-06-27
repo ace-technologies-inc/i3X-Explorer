@@ -5,7 +5,7 @@ import { TreeView } from '../tree/TreeView'
 
 export function Sidebar() {
   const { isConnected } = useConnectionStore()
-  const { isLoading } = useExplorerStore()
+  const { isLoading, sidebarCollapsed } = useExplorerStore()
   const [width, setWidth] = useState(288) // 72 * 4 = 288px (w-72)
   const [isResizing, setIsResizing] = useState(false)
 
@@ -39,6 +39,10 @@ export function Sidebar() {
       }
     }
   }, [isResizing, handleMouseMove, handleMouseUp])
+
+  // Collapsed: render nothing (the toolbar toggle brings it back). The width
+  // state stays in this still-mounted component, so expanding restores it.
+  if (sidebarCollapsed) return null
 
   return (
     <div

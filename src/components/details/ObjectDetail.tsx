@@ -184,16 +184,19 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
         )}
       </div>
 
-      {/* Relationship Graph and Current Value - responsive stack */}
-      <div className="flex flex-col xl:flex-row gap-4">
-        {/* Relationship Graph */}
-        <div className="xl:max-w-[600px] xl:shrink-0">
+      {/* Relationship Graph and Current Value - responsive stack. Stays side-by-side
+          down to 1140px so the value pane can squeeze before wrapping. */}
+      <div className="flex flex-col min-[1140px]:flex-row gap-4">
+        {/* Relationship Graph — sizes to the graph's own (content-tight) width and
+            scales down when the row is cramped, rather than reserving a fixed slab */}
+        <div className="min-w-0 min-[1140px]:max-w-[690px]">
           <label className="block text-xs text-i3x-text-muted mb-1">Relationship Graph</label>
           <RelationshipGraph object={object} />
         </div>
 
-        {/* Current Value */}
-        <div className="xl:flex-1">
+        {/* Current Value — min-w-0 lets this flex column shrink so ValueDisplay's
+            internal truncation kicks in instead of forcing the pane wide */}
+        <div className="min-[1140px]:flex-1 min-[1140px]:min-w-0">
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs text-i3x-text-muted">Current Value</label>
             <div className="flex items-center gap-3">
