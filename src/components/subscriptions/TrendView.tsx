@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { useSubscriptionsStore } from '../../stores/subscriptions'
+import { useSubscriptionsStore, type TrendPoint } from '../../stores/subscriptions'
 
-// Colors — reference CSS variables so they respond to the active theme
+// Colors, reference CSS variables so they respond to the active theme
 const COLORS = {
   bg:        'rgb(var(--i3x-bg))',
   surface:   'rgb(var(--i3x-surface))',
@@ -24,9 +24,12 @@ interface TrendViewProps {
   elementId: string
 }
 
+// A fresh [] per selector call would re-render this on every store write.
+const NO_POINTS: TrendPoint[] = []
+
 export function TrendView({ elementId }: TrendViewProps) {
   const trendData = useSubscriptionsStore(
-    (state) => state.trendData.get(elementId) || []
+    (state) => state.trendData.get(elementId) ?? NO_POINTS
   )
 
   const { path, yMin, yMax, yTicks, xLabels } = useMemo(() => {

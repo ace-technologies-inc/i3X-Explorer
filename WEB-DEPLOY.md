@@ -1,6 +1,6 @@
 # Web Deployment Guide
 
-This guide covers deploying i3X Explorer as a web application served by nginx. The web build is a standard static React app — there is no Node.js process to keep running after the build completes.
+This guide covers deploying i3X Explorer as a web application served by nginx. The web build is a standard static React app, there is no Node.js process to keep running after the build completes.
 
 ## Prerequisites
 
@@ -36,9 +36,9 @@ sudo nano /etc/nginx/sites-available/i3x-explorer
 ```
 
 Update these values:
-- `server_name` — your hostname or IP
-- `root` — absolute path to `dist-web/` inside the repo
-- `proxy_pass` — address and port of your I3X API server
+- `server_name`, your hostname or IP
+- `root`, absolute path to `dist-web/` inside the repo
+- `proxy_pass`, address and port of your I3X API server
 
 Enable the site:
 
@@ -127,8 +127,8 @@ The service runs `scripts/deploy-web.sh`, which:
 
 | File | Purpose |
 |------|---------|
-| `scripts/nginx-web.conf.example` | nginx config template — copy to `/etc/nginx/sites-available/` |
-| `scripts/i3x-explorer-web.service.example` | systemd service template — copy to `/etc/systemd/system/` |
+| `scripts/nginx-web.conf.example` | nginx config template, copy to `/etc/nginx/sites-available/` |
+| `scripts/i3x-explorer-web.service.example` | systemd service template, copy to `/etc/systemd/system/` |
 | `scripts/deploy-web.sh` | Build and deploy script, run by the systemd service |
 | `config.local.json` | Server-local runtime config (gitignored, create manually) |
 | `public/config.json` | Default runtime config shipped with the build (empty values) |

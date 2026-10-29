@@ -36,7 +36,7 @@ if [ -f "$SCRIPT_DIR/set-apple-vars.sh" ]; then
     source "$SCRIPT_DIR/set-apple-vars.sh"
 fi
 
-# Check macOS signing/notarization readiness (informational only — steps fail gracefully)
+# Check macOS signing/notarization readiness (informational only, steps fail gracefully)
 if [ "$TARGET" = "mac" ] || [ "$TARGET" = "all" ]; then
     HAS_CERT=false
     HAS_NOTARIZE=false
@@ -56,7 +56,7 @@ if [ "$TARGET" = "mac" ] || [ "$TARGET" = "all" ]; then
         echo "⚠  macOS: code signing enabled, notarization skipped"
         echo "   Set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID to notarize"
     else
-        echo "⚠  macOS: unsigned build — arm64 users will see 'app is damaged' when downloaded"
+        echo "⚠  macOS: unsigned build, arm64 users will see 'app is damaged' when downloaded"
         echo "   Requires a 'Developer ID Application' certificate in your keychain"
         echo "   and APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID env vars"
         # Suppress electron-builder's signing auto-discovery to avoid spurious errors

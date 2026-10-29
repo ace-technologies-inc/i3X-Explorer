@@ -3,6 +3,7 @@ import type {
   ObjectType,
   ObjectInstance,
   RelationshipType,
+  RelatedByTypeEntry,
   LastKnownValue,
   HistoricalValue,
   CreateSubscriptionResponse,
@@ -11,72 +12,31 @@ import type {
   ServerCapabilities
 } from './types'
 import { buildAuthHeaders } from './auth'
+import { HttpStatusError } from './subscription'
+import {
+  bulkOutcome,
+  extractV1BulkResults,
+  failureMessage,
+  failureStatus,
+  failureText,
+  isFailedEnvelope,
+  normalizeV1Object,
+  readInfoResponse,
+  singleBulkResult,
+  subscriptionUpdateItems,
+  unwrapV1Envelope,
+  AuthRequiredError,
+  UnsupportedServerError,
+  type BulkOutcome,
+} from './normalize'
+import { processObjectResponse } from './objectCatalog'
+import { describeGetNamespaces, describeGetObjectTypes, describeGetObjects, describeGetRelationshipTypes } from './requestShape'
+import type { RequestDescriptor } from './requestShape'
 
 import type { Credentials } from '../stores/connection'
+import { traceSpan } from '../diagnostics/perfTrace'
 
 export type ClientCredentials = Credentials
-
-// v0 = Alpha, v1-beta = v1 Beta, v1 = v1 Release (1.0+)
-export type ApiVersion = 'v0' | 'v1-beta' | 'v1'
-
-// #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
-// Extracts value/quality/timestamp from either standard format or nested Data.Value format
-// Standard: { value: X, quality: Y, timestamp: Z }
-// Nested value: { value: { Data: { Value: X, Quality: Y, Timestamp: Z }, Source: {...} } }
-function extractVQT(payload: Record<string, unknown>): { value: unknown; quality?: string; timestamp?: string } {
-  if (payload.value && typeof payload.value === 'object' && payload.value !== null) {
-    const valueObj = payload.value as Record<string, unknown>
-    if (valueObj.Data && typeof valueObj.Data === 'object') {
-      const data = valueObj.Data as Record<string, unknown>
-      return {
-        value: data.Value,
-        quality: data.Quality as string | undefined,
-        timestamp: data.Timestamp as string | undefined
-      }
-    }
-  }
-  return {
-    value: payload.value,
-    quality: payload.quality as string | undefined,
-    timestamp: payload.timestamp as string | undefined
-  }
-}
-
-// v1 object instances use typeElementId instead of typeId, and may omit namespaceUri.
-// As of commit 27f15c7, metadata fields (typeNamespaceUri, relationships, etc.) are
-// nested under raw.metadata rather than being flat on the object.
-// Normalize to the ObjectInstance shape used throughout the app.
-function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
-  const metadata = (raw.metadata ?? {}) as Record<string, unknown>
-  // Beta called this extendedAttributes; 1.0 renamed it schemaExtensions. Accept both.
-  const schemaExtensions = (
-    metadata.schemaExtensions ?? metadata.extendedAttributes ??
-    raw.schemaExtensions ?? raw.extendedAttributes
-  ) as Record<string, unknown> | undefined
-  return {
-    elementId: raw.elementId as string,
-    displayName: raw.displayName as string,
-    typeId: ((raw.typeElementId ?? raw.typeId) as string) ?? '',
-    parentId: (raw.parentId as string | null) ?? null,
-    isComposition: (raw.isComposition as boolean) ?? false,
-    isExtended: (raw.isExtended as boolean) ?? false,
-    namespaceUri: ((raw.namespaceUri ?? metadata.typeNamespaceUri) as string) ?? '',
-    description: (metadata.description as string) ?? undefined,
-    relationships: (metadata.relationships ?? raw.relationships) as Record<string, unknown> | undefined,
-    sourceRelationship: raw.sourceRelationship as string | undefined,
-    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    ...(schemaExtensions ? { schemaExtensions } : {})
-  }
-}
-
-// v1 POST bulk responses: {success, results: [{success, elementId, result: T}]}
-// Returns the results array, or empty array if the shape doesn't match.
-function extractV1BulkResults<T>(raw: unknown): Array<{ success: boolean; elementId: string; result: T }> {
-  if (raw && typeof raw === 'object' && 'results' in (raw as object)) {
-    return ((raw as Record<string, unknown>).results as Array<{ success: boolean; elementId: string; result: T }>) ?? []
-  }
-  return []
-}
 
 export interface StreamConfig {
   url: string
@@ -84,16 +44,207 @@ export interface StreamConfig {
   postBody?: object
 }
 
+/** The unmodified HTTP response produced by an inspector request. */
+export interface InspectedResponse {
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  body: string
+}
+
+/**
+ * A server can accept the TCP connection and then never send an HTTP response.
+ * `fetch` has no default timeout, so those requests stay pending forever and the
+ * UI sits in "Connecting…" with nothing to report. Abort instead.
+ */
+export const REQUEST_TIMEOUT_MS = 15_000
+
+const RELATED_BY_TYPE_PAGE_SIZE = 1000
+const OBJECTS_LIST_CHUNK_SIZE = 500
+const COALESCIBLE_POST_PATHS = [
+  '/objects/list',
+  '/objects/related',
+  '/objects/related-by-type',
+  '/objects/value',
+  '/objects/history',
+  '/objects/query',
+  '/objecttypes/query',
+  '/relationshiptypes/query',
+]
+type CoalescedResponseShape =
+  | 'json'
+  | 'inspector'
+  | 'info-probe'
+  | 'object-list'
+  | 'object-catalog'
+  | 'root-objects'
+  | 'envelope'
+
+interface RequestResponseProcessor<T> {
+  shape: CoalescedResponseShape
+  process: (buffer: ArrayBuffer) => T
+}
+
+function canCoalesceRead(method: string, url: string): boolean {
+  const pathname = new URL(url).pathname.replace(/\/+$/, '')
+  if (method === 'GET') return !pathname.endsWith('/stream')
+  return method === 'POST' && COALESCIBLE_POST_PATHS.some(path => pathname.endsWith(path))
+}
+
+function requestIdentity(
+  method: string,
+  url: string,
+  body: unknown,
+  responseShape: CoalescedResponseShape,
+  headers?: Record<string, string>
+): string {
+  const normalizedUrl = new URL(url)
+  normalizedUrl.searchParams.sort()
+  const bodyKey = body === undefined ? '' : stableStringify(body)
+  return `${responseShape}:${method}:${normalizedUrl.toString()}:${bodyKey}:${headers ? stableStringify(headers) : ''}`
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return 'null'
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+  return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`).join(',')}}`
+}
+
+function pathWithQuery(descriptor: RequestDescriptor): string {
+  if (!descriptor.query) return descriptor.path
+  return `${descriptor.path}?${new URLSearchParams(descriptor.query).toString()}`
+}
+
+interface ObjectListRequest {
+  typeId?: string
+  includeMetadata: boolean
+  rootsOnly: boolean
+  /** Leave out metadata; the catalog resolves namespaceUri from the object types. */
+  lean?: boolean
+  headers?: Record<string, string>
+}
+
+/** A full-catalog response: the body and its ETag, or confirmation that the caller's copy is current. */
+export type CatalogBody =
+  | { notModified: false; buffer: ArrayBuffer | undefined; etag: string | null }
+  | { notModified: true }
+
+/** An element a bulk request could not answer, with the server's reason. */
+export interface ElementFailure {
+  elementId: string
+  message: string
+}
+
+export type ObjectDetailsFailure = ElementFailure
+
+export interface ObjectDetailsResult {
+  objects: ObjectInstance[]
+  failures: ObjectDetailsFailure[]
+}
+
+/** Related objects per requested element; failed elements are absent from `related`. */
+export interface RelatedBatchResult {
+  related: Map<string, ObjectInstance[]>
+  failures: ElementFailure[]
+}
+
+export interface RelatedByTypeResult {
+  entries: RelatedByTypeEntry[]
+  failures: ElementFailure[]
+}
+
+function bulkItemFailure(item: { elementId: string | null }, fallbackId: string): ElementFailure {
+  return { elementId: item.elementId ?? fallbackId, message: failureText(item as unknown as Record<string, unknown>) }
+}
+
+/**
+ * Requested ids the bulk results never answered, failed with the best reason available: an
+ * unattributed item's, then the top-level envelope's (e.g. `{ success: false, results: [] }`).
+ */
+function unansweredFailures(requested: string[], answered: Set<string>, unattributed: string[], raw: unknown): ElementFailure[] {
+  const message = unattributed[0] ?? bulkEnvelopeFailureText(raw) ?? 'Not returned by the server'
+  return requested
+    .filter(id => !answered.has(id))
+    .map(elementId => ({ elementId, message }))
+}
+
+/** The reason a bulk body's top level gives for failing, if it gives one. */
+function bulkEnvelopeFailureText(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const body = raw as Record<string, unknown>
+  return body.success === false && failureMessage(body) !== undefined ? failureText(body) : undefined
+}
+
+/** The element a bulk result answers; the spec allows a null elementId, which only a lone request/result pair can resolve. */
+function resultElementId(item: { elementId: string | null }, requested: string[], resultCount: number): string | null {
+  if (typeof item.elementId === 'string') return item.elementId
+  return requested.length === 1 && resultCount === 1 ? requested[0] : null
+}
+
+/** A 2xx `success: false` body as an error, typed by its `responseDetail.status` so callers can branch on it. */
+function envelopeError(body: Record<string, unknown>): Error {
+  const status = failureStatus(body)
+  if (status === undefined) return new Error(failureText(body))
+  return new HttpStatusError(status, failureMessage(body) ?? 'The server reported a failure')
+}
+
+// Each related entry is { sourceRelationship, object: {...} }; sourceRelationship
+// lives on the envelope, so carry it onto the object before normalizing.
+function normalizeRelatedEnvelope(envelope: Record<string, unknown>): ObjectInstance {
+  const inner = (envelope.object ?? envelope) as Record<string, unknown>
+  const raw = envelope.object ? { ...inner, sourceRelationship: envelope.sourceRelationship } : inner
+  return normalizeV1Object(raw as Record<string, unknown>)
+}
+
+/** The cursor of a `Link: <…?cursor=X>; rel="next"` header, if there is one. */
+export function nextCursorFromLink(link: string | null): string | null {
+  if (!link) return null
+  for (const part of link.split(',')) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="?next"?/i)
+    if (match) return new URL(match[1], 'http://placeholder').searchParams.get('cursor')
+  }
+  return null
+}
+
+export class TimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Server did not respond within ${Math.round(timeoutMs / 1000)}s`)
+    this.name = 'TimeoutError'
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    // Our abort and a caller's abort look the same; only ours can fire here.
+    if (err instanceof Error && err.name === 'AbortError') throw new TimeoutError(timeoutMs)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export class I3XClient {
   private baseUrl: string
   private credentials: ClientCredentials | null
-  private apiVersion: ApiVersion = 'v0'
-  // Track last seen sequence number per subscription for v1 sync acknowledgment
+  // Track last seen sequence number per subscription for sync acknowledgment
   private syncSequenceNumbers = new Map<string, number>()
-  // clientId generated at createSubscription time; required by all subsequent v1 subscription ops
+  // clientId generated at createSubscription time; required by all subsequent subscription ops
   private clientIds = new Map<string, string>()
-  // Capabilities matrix from GET /info; captured at connect, consumed only for v1 (Release) servers
+  // Capabilities matrix from GET /info; captured at connect
   private capabilities: ServerCapabilities | null = null
+  private inFlightReads = new Map<string, Promise<unknown>>()
 
   constructor(baseUrl: string, credentials?: ClientCredentials | null) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
@@ -108,17 +259,59 @@ export class I3XClient {
     return this.baseUrl
   }
 
-  getApiVersion(): ApiVersion {
-    return this.apiVersion
-  }
-
   getCapabilities(): ServerCapabilities | null {
     return this.capabilities
   }
 
-  // True for v1-beta and v1 (Release) — any server that speaks the v1 wire format
-  private isV1(): boolean {
-    return this.apiVersion === 'v1' || this.apiVersion === 'v1-beta'
+  /**
+   * Execute a declarative request shape without applying endpoint-specific
+   * response normalization. The request inspector uses this to show exactly
+   * what the server returned, including non-success responses.
+   */
+  async executeDescriptor(descriptor: RequestDescriptor): Promise<InspectedResponse> {
+    let url = `${this.baseUrl}${pathWithQuery(descriptor)}`
+    if (url.includes('://localhost:')) {
+      url = url.replace('://localhost:', '://127.0.0.1:')
+    }
+
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (descriptor.body !== undefined) headers['Content-Type'] = 'application/json'
+    Object.assign(headers, buildAuthHeaders(this.credentials))
+
+    return this.coalesceRead(descriptor.method, url, descriptor.body, 'inspector', async () => {
+      const response = await fetchWithTimeout(url, {
+        method: descriptor.method,
+        headers,
+        ...(descriptor.body !== undefined ? { body: JSON.stringify(descriptor.body) } : {}),
+      })
+
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: await response.text(),
+      }
+    })
+  }
+
+  private coalesceRead<T>(
+    method: string,
+    url: string,
+    body: unknown,
+    responseShape: CoalescedResponseShape,
+    execute: () => Promise<T>,
+    headers?: Record<string, string>
+  ): Promise<T> {
+    if (!canCoalesceRead(method, url)) return execute()
+    const key = requestIdentity(method, url, body, responseShape, headers)
+    const existing = this.inFlightReads.get(key)
+    if (existing) return existing as Promise<T>
+
+    const shared = execute().finally(() => {
+      if (this.inFlightReads.get(key) === shared) this.inFlightReads.delete(key)
+    })
+    this.inFlightReads.set(key, shared)
+    return shared
   }
 
   // 1.0: a 206 bulk response carries a top-level responseDetail explaining the
@@ -137,17 +330,38 @@ export class I3XClient {
   private async requestRaw<T>(
     method: string,
     path: string,
-    body?: unknown
-  ): Promise<{ data: T; status: number }> {
+    body?: unknown,
+    responseProcessor?: RequestResponseProcessor<T>,
+    requestHeaders?: Record<string, string>
+  ): Promise<{ data: T; status: number; headers: Headers }> {
     // Fix localhost IPv6 issue - Chromium may prefer IPv6 but servers often only listen on IPv4
     let url = `${this.baseUrl}${path}`
     if (url.includes('://localhost:')) {
       url = url.replace('://localhost:', '://127.0.0.1:')
     }
 
+    return this.coalesceRead(
+      method,
+      url,
+      body,
+      responseProcessor?.shape ?? 'json',
+      () => this.performRequestRaw(method, url, body, responseProcessor, requestHeaders),
+      requestHeaders
+    )
+  }
+
+  private async performRequestRaw<T>(
+    method: string,
+    url: string,
+    body?: unknown,
+    responseProcessor?: RequestResponseProcessor<T>,
+    requestHeaders?: Record<string, string>
+  ): Promise<{ data: T; status: number; headers: Headers }> {
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      ...requestHeaders,
     }
 
     Object.assign(headers, buildAuthHeaders(this.credentials));
@@ -157,42 +371,53 @@ export class I3XClient {
       options.body = JSON.stringify(body)
     }
 
-    const response = await fetch(url, options)
+    const response = await fetchWithTimeout(url, options)
     const status = response.status
+    const responseHeaders = response.headers
+
+    // Only a conditional request can produce this; the caller's copy is current.
+    if (status === 304) return { data: undefined as T, status, headers: responseHeaders }
 
     if (!response.ok) {
       const errorText = await response.text()
-      let errorMessage = `HTTP ${status}`
+      let errorMessage: string
       try {
         const errorData = JSON.parse(errorText) as Record<string, unknown>
-        // 1.0: responseDetail.detail / responseDetail.title
-        // Beta: problemDetail.detail / problemDetail.title
-        // Alpha/v0: error.message / error.code
-        const detail = (errorData?.responseDetail ?? errorData?.problemDetail ?? errorData?.error) as Record<string, unknown> | undefined
-        if (detail) {
-          errorMessage += `: ${detail.detail ?? detail.message ?? detail.title ?? errorText}`
-        } else {
-          errorMessage += `: ${errorText}`
-        }
+        // responseDetail.detail / responseDetail.title
+        const detail = errorData?.responseDetail as Record<string, unknown> | undefined
+        errorMessage = detail ? String(detail.detail ?? detail.title ?? errorText) : errorText
       } catch {
-        errorMessage += `: ${errorText}`
+        errorMessage = errorText
       }
-      throw new Error(errorMessage)
+      throw new HttpStatusError(status, errorMessage)
     }
 
-    const data = await response.json()
+    // 204 No Content and empty 200 bodies are legitimate for register/unregister/
+    // delete/sync; response.json() would throw SyntaxError on them.
+    if (status === 204) {
+      return { data: undefined as T, status, headers: responseHeaders }
+    }
+    let data: unknown
+    if (responseProcessor) {
+      const buffer = await response.arrayBuffer()
+      if (buffer.byteLength === 0) return { data: undefined as T, status, headers: responseHeaders }
+      data = traceSpan(`parse ${method} ${new URL(url).pathname}`, () => responseProcessor.process(buffer))
+    } else {
+      const text = await response.text()
+      if (!text.trim()) return { data: undefined as T, status, headers: responseHeaders }
+      data = traceSpan(`parse ${method} ${new URL(url).pathname}`, () => JSON.parse(text))
+    }
 
-    // v1 wraps single-value responses: {success: true, result: <data>}
+    // Single-value responses are wrapped: {success: true, result: <data>}
     // POST bulk responses use {success, results: [...]} and are handled per-method.
     let unwrapped: unknown = data
-    if (this.isV1() && data && typeof data === 'object') {
-      const d = data as Record<string, unknown>
-      if ('result' in d && !('results' in d)) {
-        unwrapped = d.result
-      }
+    if (!responseProcessor) {
+      // A 2xx non-bulk envelope can still report failure; bulk bodies are judged per item by the caller.
+      if (isFailedEnvelope(data)) throw envelopeError(data)
+      unwrapped = unwrapV1Envelope(data)
     }
 
-    return { data: unwrapped as T, status }
+    return { data: unwrapped as T, status, headers: responseHeaders }
   }
 
   private async request<T>(
@@ -204,264 +429,303 @@ export class I3XClient {
     return data
   }
 
-  // Detect API version by probing GET /info (v1 only). Falls back to v0.
-  // Distinguishes v1-beta from v1 (Release) by looking for a specVersion/version field in /info.
-  private async detectVersion(): Promise<void> {
-    try {
-      let url = `${this.baseUrl}/info`
-      if (url.includes('://localhost:')) {
-        url = url.replace('://localhost:', '://127.0.0.1:')
-      }
-      const headers: Record<string, string> = { 'Accept': 'application/json' }
-      Object.assign(headers, buildAuthHeaders(this.credentials));
+  /** The parsed body with its envelope intact: a failure can carry `success: false` beside a null `result`. */
+  private async requestEnvelope(method: string, path: string, body?: unknown): Promise<unknown> {
+    const { data } = await this.requestRaw<unknown>(method, path, body, {
+      shape: 'envelope',
+      process: buffer => JSON.parse(new TextDecoder().decode(buffer)),
+    })
+    return data
+  }
 
-      const response = await fetch(url, { method: 'GET', headers })
+  // Probe GET /info and require an i3X 1.0 release server. A server that does
+  // not identify as one rejects with UnsupportedServerError; a hung or
+  // unreachable server surfaces as itself (TimeoutError or a network error).
+  private async verifyServer(): Promise<void> {
+    let url = `${this.baseUrl}/info`
+    if (url.includes('://localhost:')) {
+      url = url.replace('://localhost:', '://127.0.0.1:')
+    }
+    const headers: Record<string, string> = { 'Accept': 'application/json' }
+    Object.assign(headers, buildAuthHeaders(this.credentials));
 
-      // If the server redirected (e.g. http → https upgrade), adopt the final URL
-      // for all subsequent requests. GETs survive a 301/302 redirect but browsers
-      // convert POST to GET and drop the body, so every POST would fail otherwise.
-      // Only adopt when the final URL still ends in /info — a redirect to some
-      // unrelated page (login portal, captive portal) must not corrupt the base.
-      if (response.redirected && response.url) {
-        const match = response.url.match(/^(.+?)\/info\/?$/)
-        if (match) {
-          this.baseUrl = match[1]
-        }
+    const probe = await this.coalesceRead('GET', url, undefined, 'info-probe', async () => {
+      const response = await fetchWithTimeout(url, { method: 'GET', headers })
+      return {
+        ok: response.ok,
+        status: response.status,
+        redirected: response.redirected,
+        url: response.url,
+        body: response.ok ? await response.json().catch(() => undefined) : undefined,
       }
+    })
 
-      if (!response.ok) {
-        this.apiVersion = 'v0'
-        return
+    // If the server redirected (e.g. http → https upgrade), adopt the final URL
+    // for all subsequent requests. GETs survive a 301/302 redirect but browsers
+    // convert POST to GET and drop the body, so every POST would fail otherwise.
+    // Only adopt when the final URL still ends in /info, a redirect to some
+    // unrelated page (login portal, captive portal) must not corrupt the base.
+    if (probe.redirected && probe.url) {
+      const match = probe.url.match(/^(.+?)\/info\/?$/)
+      if (match) {
+        this.baseUrl = match[1]
       }
+    }
 
-      // Try to read a version field from the /info body.
-      // 1.0 servers are expected to advertise specVersion / version / apiVersion >= "1.0".
-      try {
-        const body = await response.json() as Record<string, unknown>
-        // v1 wraps the payload: {success, result: {...}}; also accept unwrapped bodies
-        const info = (body.result ?? body) as Record<string, unknown>
-        // Capture the capabilities matrix (mandatory in 1.0 ServerInfo).
-        // Stored for any server that provides it; consumers gate on getApiVersion() === 'v1'.
-        if (info.capabilities && typeof info.capabilities === 'object') {
-          this.capabilities = info.capabilities as ServerCapabilities
-        }
-        const serverVersion = String(info.serverVersion ?? '').toLowerCase()
-        const specRaw = (info.specVersion ?? info.version ?? info.apiVersion ?? '') as string
-        const specMajor = parseFloat(specRaw)
-        const isRelease = !isNaN(specMajor) && specMajor >= 1.0 && !serverVersion.includes('beta')
-        this.apiVersion = isRelease ? 'v1' : 'v1-beta'
-      } catch {
-        // /info responded OK but body isn't useful — treat as Beta
-        this.apiVersion = 'v1-beta'
-      }
-    } catch {
-      this.apiVersion = 'v0'
+    // Interpretation lives in readInfoResponse (normalize.ts) so the rules are
+    // unit-testable; an unparseable body is signalled as `undefined`.
+    const capabilities = readInfoResponse({ ok: probe.ok, status: probe.status, body: probe.body })
+    if (capabilities) {
+      this.capabilities = capabilities
     }
   }
 
   // Exploratory Methods (RFC 4.1)
 
-  async getNamespaces(): Promise<Namespace[]> {
-    // v0: Namespace[]  v1: auto-unwrapped from {success, result: Namespace[]}
-    return this.request<Namespace[]>('GET', '/namespaces')
+  async getNamespaces(includeMetadata = true): Promise<Namespace[]> {
+    // Auto-unwrapped from {success, result: Namespace[]}
+    const descriptor = describeGetNamespaces(includeMetadata)
+    return this.request<Namespace[]>('GET', pathWithQuery(descriptor))
   }
 
-  async getObjectTypes(namespaceUri?: string): Promise<ObjectType[]> {
-    const params = namespaceUri ? `?namespaceUri=${encodeURIComponent(namespaceUri)}` : ''
-    // ObjectType shape is compatible between v0 and v1 (extra fields ignored)
-    return this.request<ObjectType[]>('GET', `/objecttypes${params}`)
+  async getObjectTypes(namespaceUri?: string, includeMetadata = true): Promise<ObjectType[]> {
+    const descriptor = describeGetObjectTypes(namespaceUri, includeMetadata)
+    return this.request<ObjectType[]>('GET', pathWithQuery(descriptor))
   }
 
-  async getRelationshipTypes(namespaceUri?: string): Promise<RelationshipType[]> {
-    const params = namespaceUri ? `?namespaceUri=${encodeURIComponent(namespaceUri)}` : ''
-    // RelationshipType shape is compatible between v0 and v1 (extra fields ignored)
-    return this.request<RelationshipType[]>('GET', `/relationshiptypes${params}`)
+  async getRelationshipTypes(namespaceUri?: string, includeMetadata = true): Promise<RelationshipType[]> {
+    const descriptor = describeGetRelationshipTypes(namespaceUri, includeMetadata)
+    return this.request<RelationshipType[]>('GET', pathWithQuery(descriptor))
   }
 
   async getObjects(typeId?: string, includeMetadata = false, root?: boolean): Promise<ObjectInstance[]> {
-    const params = new URLSearchParams()
-    // v1 renamed the query param: typeId → typeElementId
-    if (typeId) params.set(this.isV1() ? 'typeElementId' : 'typeId', typeId)
-    // v1: always request metadata so namespaceUri (metadata.typeNamespaceUri) is present
-    params.set('includeMetadata', String(this.isV1() ? true : includeMetadata))
-    // v1 supports root=true server-side; v0 doesn't have this param so we filter locally below.
-    if (root && this.isV1()) params.set('root', 'true')
-    const raw = await this.request<Array<Record<string, unknown>>>('GET', `/objects?${params.toString()}`)
-    if (this.isV1()) {
-      return raw.map(normalizeV1Object)
-    }
-    const all = raw as unknown as ObjectInstance[]
-    // v0: simulate root filtering locally — root objects have parentId === '/'
-    if (root) return all.filter(obj => obj.parentId === '/')
-    return all
+    const { data: list } = await this.fetchObjects({ typeId, includeMetadata, rootsOnly: !!root }, {
+      shape: 'object-list',
+      process: buffer => processObjectResponse(buffer, { buildIndexes: false }),
+    })
+    return list.objects
+  }
+
+  /**
+   * The raw full-catalog body (`GET /objects`), for the catalog engine to
+   * fingerprint and parse off the main thread. With `ifNoneMatch`, a server that
+   * still holds that catalog answers 304 and nothing is downloaded.
+   */
+  async getObjectCatalogBytes(ifNoneMatch?: string): Promise<CatalogBody> {
+    const { data, status, headers } = await this.fetchObjects({
+      includeMetadata: false,
+      rootsOnly: false,
+      lean: true,
+      headers: ifNoneMatch ? { 'If-None-Match': ifNoneMatch } : undefined,
+    }, {
+      shape: 'object-catalog',
+      process: buffer => buffer,
+    })
+    if (status === 304) return { notModified: true }
+    return { notModified: false, buffer: data, etag: headers.get('ETag') }
+  }
+
+  /** The raw hierarchy-roots body for the catalog engine. */
+  async getRootObjectBytes(): Promise<ArrayBuffer | undefined> {
+    const { data } = await this.fetchObjects({ includeMetadata: false, rootsOnly: true, lean: true }, {
+      shape: 'root-objects',
+      process: buffer => buffer,
+    })
+    return data
+  }
+
+  private async fetchObjects<T>(
+    request: ObjectListRequest,
+    processor: RequestResponseProcessor<T>
+  ): Promise<{ data: T; status: number; headers: Headers }> {
+    const descriptor = describeGetObjects(
+      request.typeId,
+      request.includeMetadata,
+      request.rootsOnly,
+      request.lean
+    )
+    return this.requestRaw<T>('GET', pathWithQuery(descriptor), undefined, processor, request.headers)
   }
 
   async getObject(elementId: string): Promise<ObjectInstance> {
-    if (this.isV1()) {
-      // v1: GET /objects/{id} removed; use POST /objects/list with single elementId
-      const raw = await this.request<unknown>('POST', '/objects/list', {
-        elementIds: [elementId],
-        includeMetadata: true
-      })
-      const results = extractV1BulkResults<Record<string, unknown>>(raw)
-      const item = results.find(r => r.elementId === elementId && r.success)
-      if (item?.result) return normalizeV1Object(item.result)
-      throw new Error(`Object ${elementId} not found`)
-    }
-    const raw = await this.request<Record<string, unknown>>('GET', `/objects/${encodeURIComponent(elementId)}`)
-    return raw as unknown as ObjectInstance
+    // GET /objects/{id} does not exist; use POST /objects/list with a single elementId
+    const raw = await this.request<unknown>('POST', '/objects/list', {
+      elementIds: [elementId],
+      includeMetadata: true
+    })
+    const result = singleBulkResult<Record<string, unknown>>(raw, elementId)
+    if (result) return normalizeV1Object(result)
+    throw new Error(`Object ${elementId} not found`)
   }
 
   async getRelatedObjects(
     elementId: string,
-    relationshipType?: string,
-    includeMetadata = false
+    relationshipType?: string
   ): Promise<ObjectInstance[]> {
-    if (this.isV1()) {
-      // v1: subscriptionId in body, camelCase field, bulk results response
-      // Always include metadata so namespaceUri (metadata.typeNamespaceUri) is populated
-      const raw = await this.request<unknown>('POST', '/objects/related', {
-        elementIds: [elementId],
-        relationshipType,
-        includeMetadata: true
-      })
-      const results = extractV1BulkResults<Array<Record<string, unknown>>>(raw)
-      const objects: ObjectInstance[] = []
-      for (const item of results) {
-        if (item.success && Array.isArray(item.result)) {
-          for (const envelope of item.result) {
-            // Each entry is { sourceRelationship, object: {...} } (spec commit 51593eb).
-            // sourceRelationship is on the envelope, not the inner object — inject it so
-            // normalizeV1Object can map it onto ObjectInstance.sourceRelationship.
-            const inner = (envelope.object ?? envelope) as Record<string, unknown>
-            const raw = envelope.object
-              ? { ...inner, sourceRelationship: envelope.sourceRelationship }
-              : inner
-            objects.push(normalizeV1Object(raw as Record<string, unknown>))
-          }
-        }
-      }
-      return objects
-    }
-    // v0: lowercase field, direct array response
-    return this.request<ObjectInstance[]>('POST', '/objects/related', {
+    // Always include metadata so namespaceUri (metadata.typeNamespaceUri) is populated
+    const raw = await this.request<unknown>('POST', '/objects/related', {
       elementIds: [elementId],
-      relationshiptype: relationshipType,
-      includeMetadata
+      relationshipType,
+      includeMetadata: true
     })
+    const result = singleBulkResult<Array<Record<string, unknown>>>(raw, elementId)
+    return Array.isArray(result) ? result.map(normalizeRelatedEnvelope) : []
   }
 
-  // Batch /objects/related — used to authoritatively determine which parents
+  // Batch /objects/related, used to authoritatively determine which parents
   // have qualifying compositional children (for tree chevrons), in one round
-  // trip instead of one call per parent. Returns Map<parentElementId, children[]>.
-  // v1 only.
+  // trip instead of one call per parent.
   async getRelatedObjectsBatch(
     elementIds: string[],
     relationshipType?: string
-  ): Promise<Map<string, ObjectInstance[]>> {
-    const out = new Map<string, ObjectInstance[]>()
-    if (elementIds.length === 0 || !this.isV1()) return out
+  ): Promise<RelatedBatchResult> {
+    const related = new Map<string, ObjectInstance[]>()
+    const failures: ElementFailure[] = []
+    if (elementIds.length === 0) return { related, failures }
     const raw = await this.request<unknown>('POST', '/objects/related', {
       elementIds,
       relationshipType,
       includeMetadata: false
     })
     const results = extractV1BulkResults<Array<Record<string, unknown>>>(raw)
+    const answered = new Set<string>()
+    const unattributed: string[] = []
     for (const item of results) {
-      if (!item.success || !Array.isArray(item.result)) {
-        out.set(item.elementId, [])
+      const elementId = resultElementId(item, elementIds, results.length)
+      if (elementId === null) {
+        if (item.success === false) unattributed.push(failureText(item as unknown as Record<string, unknown>))
         continue
       }
-      const objects: ObjectInstance[] = []
-      for (const envelope of item.result) {
-        const inner = (envelope.object ?? envelope) as Record<string, unknown>
-        const r = envelope.object
-          ? { ...inner, sourceRelationship: envelope.sourceRelationship }
-          : inner
-        objects.push(normalizeV1Object(r as Record<string, unknown>))
-      }
-      out.set(item.elementId, objects)
+      answered.add(elementId)
+      if (item.success === false) failures.push(bulkItemFailure(item, elementId))
+      else related.set(elementId, Array.isArray(item.result) ? item.result.map(normalizeRelatedEnvelope) : [])
     }
-    return out
+    failures.push(...unansweredFailures(elementIds, answered, unattributed, raw))
+    return { related, failures }
+  }
+
+  // Batch POST /objects/list, chunked so a large id set doesn't become one huge
+  // request body. Ids the server doesn't know are simply absent.
+  async getObjectsByIds(elementIds: string[]): Promise<ObjectInstance[]> {
+    return (await this.getObjectDetails(elementIds)).objects
+  }
+
+  /**
+   * The full objects (with metadata) for these ids, plus every id the server
+   * did not resolve: a failed per-element result, or no result at all.
+   */
+  async getObjectDetails(elementIds: string[]): Promise<ObjectDetailsResult> {
+    if (elementIds.length === 0) return { objects: [], failures: [] }
+    const objects: ObjectInstance[] = []
+    const failures: ObjectDetailsFailure[] = []
+    for (let i = 0; i < elementIds.length; i += OBJECTS_LIST_CHUNK_SIZE) {
+      const chunk = elementIds.slice(i, i + OBJECTS_LIST_CHUNK_SIZE)
+      const raw = await this.request<unknown>('POST', '/objects/list', {
+        elementIds: chunk,
+        includeMetadata: true
+      })
+      const answered = new Set<string>()
+      const unattributed: string[] = []
+      const results = extractV1BulkResults<Record<string, unknown>>(raw)
+      for (const item of results) {
+        const elementId = resultElementId(item, chunk, results.length)
+        if (elementId === null) {
+          if (item.success === false) unattributed.push(failureText(item as unknown as Record<string, unknown>))
+          continue
+        }
+        answered.add(elementId)
+        if (item.success && item.result) objects.push(normalizeV1Object(item.result))
+        else failures.push(bulkItemFailure(item, elementId))
+      }
+      failures.push(...unansweredFailures(chunk, answered, unattributed, raw))
+    }
+    return { objects, failures }
+  }
+
+  /**
+   * Vendor extension (non-conformant) POST /objects/related-by-type: every
+   * source element that has a relationship of this type, with its related
+   * objects. Paged via a `Link: rel="next"` cursor; all pages are followed.
+   */
+  async getRelatedObjectsByType(relationshipType: string): Promise<RelatedByTypeResult> {
+    const bySource = new Map<string, ObjectInstance[]>()
+    const failures: ElementFailure[] = []
+    const seenCursors = new Set<string>()
+    let cursor: string | null = null
+    do {
+      const params = new URLSearchParams({ limit: String(RELATED_BY_TYPE_PAGE_SIZE) })
+      if (cursor) params.set('cursor', cursor)
+      const { data, headers } = await this.requestRaw<unknown>(
+        'POST',
+        `/objects/related-by-type?${params.toString()}`,
+        { relationshipTypes: [relationshipType], includeMetadata: true }
+      )
+      const items = extractV1BulkResults<Array<Record<string, unknown>>>(data)
+      // No ids were requested, so a failed page with no items is a failure of the whole request.
+      if (items.length === 0 && bulkEnvelopeFailureText(data) !== undefined) {
+        throw envelopeError(data as Record<string, unknown>)
+      }
+      for (const item of items) {
+        if (item.success === false) {
+          failures.push(bulkItemFailure(item, relationshipType))
+          continue
+        }
+        if (!Array.isArray(item.result)) continue
+        const related = bySource.get(item.elementId) ?? []
+        for (const envelope of item.result) related.push(normalizeRelatedEnvelope(envelope))
+        bySource.set(item.elementId, related)
+      }
+      if (cursor) seenCursors.add(cursor)
+      cursor = nextCursorFromLink(headers.get('Link'))
+    } while (cursor && !seenCursors.has(cursor))
+    return { entries: [...bySource].map(([sourceId, related]) => ({ sourceId, related })), failures }
   }
 
   // Value Methods (RFC 4.2.1)
 
   async getValue(elementId: string, maxDepth = 1): Promise<LastKnownValue | null> {
-    if (this.isV1()) {
-      // v1: bulk results; flat {value, quality, timestamp} in result (no data array)
-      const { data: raw, status } = await this.requestRaw<unknown>('POST', '/objects/value', { elementIds: [elementId], maxDepth })
-      // 1.0: HTTP 206 = server-imposed limit truncated the composition tree;
-      // the top-level responseDetail explains the limit. Release servers only.
-      const partialDetail = this.apiVersion === 'v1' && status === 206
-        ? this.extractPartialDetail(raw)
-        : undefined
-      const results = extractV1BulkResults<Record<string, unknown>>(raw)
-      const item = results.find(r => r.elementId === elementId && r.success)
-      if (item?.result) {
-        // v1 spec includes isComposition in the result; fall back to inferring from
-        // components presence for v1-beta servers that may not include it.
-        return {
-          elementId,
-          value: item.result.value as Record<string, unknown>,
-          quality: item.result.quality as string | undefined,
-          timestamp: item.result.timestamp as string | undefined,
-          parentId: null,
-          isComposition: (item.result.isComposition as boolean | undefined) ?? ('components' in item.result),
-          components: item.result.components as LastKnownValue['components'],
-          namespaceUri: '',
-          rawResponse: raw,
-          ...(partialDetail ? { partialDetail } : {})
-        } as LastKnownValue
-      }
-      return null
-    }
-    // v0: {elementId: {data: [{value, quality, timestamp}]}}
-    const response = await this.request<Record<string, { data: Array<Record<string, unknown>> }>>(
-      'POST', '/objects/value', { elementIds: [elementId], maxDepth }
-    )
-    const entry = response[elementId]
-    if (entry?.data?.[0]) {
-      const vqt = extractVQT(entry.data[0])
-      return { elementId, ...vqt, rawResponse: response } as LastKnownValue
+    // Bulk results; flat {value, quality, timestamp} in result (no data array)
+    const { data: raw, status } = await this.requestRaw<unknown>('POST', '/objects/value', { elementIds: [elementId], maxDepth })
+    // HTTP 206 = server-imposed limit truncated the composition tree;
+    // the top-level responseDetail explains the limit.
+    const partialDetail = status === 206 ? this.extractPartialDetail(raw) : undefined
+    const result = singleBulkResult<Record<string, unknown>>(raw, elementId)
+    if (result) {
+      // isComposition is absent from value responses (spec commit 32be7d7); infer it
+      // from the presence of `components` when the result doesn't say.
+      return {
+        elementId,
+        value: result.value as Record<string, unknown>,
+        quality: result.quality as string | undefined,
+        timestamp: result.timestamp as string | undefined,
+        parentId: null,
+        isComposition: (result.isComposition as boolean | undefined) ?? ('components' in result),
+        components: result.components as LastKnownValue['components'],
+        namespaceUri: '',
+        rawResponse: raw,
+        ...(partialDetail ? { partialDetail } : {})
+      } as LastKnownValue
     }
     return null
   }
 
   async getValues(elementIds: string[], maxDepth = 1): Promise<LastKnownValue[]> {
-    if (this.isV1()) {
-      const { data: raw, status } = await this.requestRaw<unknown>('POST', '/objects/value', { elementIds, maxDepth })
-      const partialDetail = this.apiVersion === 'v1' && status === 206
-        ? this.extractPartialDetail(raw)
-        : undefined
-      const results = extractV1BulkResults<Record<string, unknown>>(raw)
-      return results
-        .filter(r => r.success && r.result)
-        .map(r => ({
-          elementId: r.elementId,
-          value: r.result.value as Record<string, unknown>,
-          quality: r.result.quality as string | undefined,
-          timestamp: r.result.timestamp as string | undefined,
-          parentId: null,
-          isComposition: (r.result.isComposition as boolean | undefined) ?? ('components' in r.result),
-          components: r.result.components as LastKnownValue['components'],
-          namespaceUri: '',
-          ...(partialDetail ? { partialDetail } : {})
-        } as LastKnownValue))
-    }
-    // v0
-    const response = await this.request<Record<string, { data: Array<Record<string, unknown>> }>>(
-      'POST', '/objects/value', { elementIds, maxDepth }
-    )
-    const values: LastKnownValue[] = []
-    for (const id of elementIds) {
-      const entry = response[id]
-      if (entry?.data?.[0]) {
-        const vqt = extractVQT(entry.data[0])
-        values.push({ elementId: id, ...vqt } as LastKnownValue)
-      }
-    }
-    return values
+    const { data: raw, status } = await this.requestRaw<unknown>('POST', '/objects/value', { elementIds, maxDepth })
+    const partialDetail = status === 206 ? this.extractPartialDetail(raw) : undefined
+    const results = extractV1BulkResults<Record<string, unknown>>(raw)
+    return results
+      .filter(r => r.success && r.result)
+      .map(r => ({
+        elementId: r.elementId,
+        value: r.result.value as Record<string, unknown>,
+        quality: r.result.quality as string | undefined,
+        timestamp: r.result.timestamp as string | undefined,
+        parentId: null,
+        isComposition: (r.result.isComposition as boolean | undefined) ?? ('components' in r.result),
+        components: r.result.components as LastKnownValue['components'],
+        namespaceUri: '',
+        ...(partialDetail ? { partialDetail } : {})
+      } as LastKnownValue))
   }
 
   async getHistory(
@@ -477,69 +741,42 @@ export class I3XClient {
       parentId: null,
       namespaceUri: ''
     }
-    if (this.isV1()) {
-      // v1: bulk results; history in result.values (not data).
-      // isComposition was removed from v1 history responses (spec commit 32be7d7).
-      const raw = await this.request<unknown>(
-        'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
-      )
-      const results = extractV1BulkResults<{ values: Record<string, unknown>[] }>(raw)
-      const item = results.find(r => r.elementId === elementId && r.success)
-      return {
-        ...defaultValue,
-        value: item?.result?.values ?? []
-      }
-    }
-    // v0: {elementId: {data: [...]}}
-    const response = await this.request<Record<string, { data: Record<string, unknown>[] }>>(
+    // Bulk results; history in result.values (not data).
+    // isComposition was removed from history responses (spec commit 32be7d7).
+    const raw = await this.request<unknown>(
       'POST', '/objects/history', { elementIds: [elementId], startTime, endTime, maxDepth }
     )
-    const entry = response[elementId]
-    if (entry?.data) {
-      return { ...defaultValue, value: entry.data }
+    const result = singleBulkResult<{ values: Record<string, unknown>[] }>(raw, elementId)
+    return {
+      ...defaultValue,
+      value: result?.values ?? []
     }
-    return defaultValue
   }
 
   // Subscription Methods (RFC 4.2.3)
 
   async getSubscriptions(): Promise<GetSubscriptionsResponse> {
-    if (this.isV1()) {
-      // v1 has no list-all endpoint; caller must track IDs returned from createSubscription
-      return { subscriptionIds: [] }
-    }
-    return this.request<GetSubscriptionsResponse>('GET', '/subscriptions')
+    // There is no list-all endpoint; caller must track IDs returned from createSubscription
+    return { subscriptionIds: [] }
   }
 
   async createSubscription(): Promise<CreateSubscriptionResponse> {
-    // v0: {subscriptionId, message}
-    // v1: auto-unwrapped from {success, result: {clientId, subscriptionId, displayName}}
-    // v1: client MUST supply a cryptographically random clientId; store it for all subsequent ops
-    if (this.isV1()) {
-      const clientId = crypto.randomUUID()
-      const response = await this.request<Record<string, unknown>>('POST', '/subscriptions', { clientId })
-      const subscriptionId = String(response.subscriptionId)
-      this.clientIds.set(subscriptionId, clientId)
-      return { subscriptionId, message: 'Subscription created' }
-    }
-    const response = await this.request<Record<string, unknown>>('POST', '/subscriptions', {})
-    return {
-      subscriptionId: String(response.subscriptionId),
-      message: (response.message as string | undefined) ?? 'Subscription created'
-    }
+    // Auto-unwrapped from {success, result: {clientId, subscriptionId, displayName}}
+    // The client MUST supply a cryptographically random clientId; store it for all subsequent ops
+    const clientId = crypto.randomUUID()
+    const response = await this.request<Record<string, unknown>>('POST', '/subscriptions', { clientId })
+    const subscriptionId = String(response.subscriptionId)
+    this.clientIds.set(subscriptionId, clientId)
+    return { subscriptionId, message: 'Subscription created' }
   }
 
   async deleteSubscription(subscriptionId: string): Promise<void> {
-    // Purge local state even if the server request fails — callers delete
+    // Purge local state even if the server request fails, callers delete
     // subscriptions that may already be expired server-side (404), and the
     // clientId/sequence entries must not outlive the subscription locally.
     try {
-      if (this.isV1()) {
-        const clientId = this.clientIds.get(subscriptionId)
-        await this.request<unknown>('POST', '/subscriptions/delete', { clientId, subscriptionIds: [subscriptionId] })
-      } else {
-        await this.request<unknown>('DELETE', `/subscriptions/${subscriptionId}`)
-      }
+      const clientId = this.clientIds.get(subscriptionId)
+      await this.request<unknown>('POST', '/subscriptions/delete', { clientId, subscriptionIds: [subscriptionId] })
     } finally {
       this.syncSequenceNumbers.delete(subscriptionId)
       this.clientIds.delete(subscriptionId)
@@ -550,120 +787,80 @@ export class I3XClient {
     subscriptionId: string,
     elementIds: string[],
     maxDepth = 1
-  ): Promise<unknown> {
-    if (this.isV1()) {
-      const clientId = this.clientIds.get(subscriptionId)
-      return this.request<unknown>('POST', '/subscriptions/register', { clientId, subscriptionId, elementIds, maxDepth })
-    }
-    return this.request<unknown>('POST', `/subscriptions/${subscriptionId}/register`, { elementIds, maxDepth })
+  ): Promise<BulkOutcome> {
+    const clientId = this.clientIds.get(subscriptionId)
+    return bulkOutcome(
+      elementIds,
+      await this.requestEnvelope('POST', '/subscriptions/register', { clientId, subscriptionId, elementIds, maxDepth })
+    )
   }
 
+  /** `maxDepth` repeats the registration depth, so a composition root stops collecting its components too. */
   async unregisterMonitoredItems(
     subscriptionId: string,
-    elementIds: string[]
-  ): Promise<unknown> {
-    if (this.isV1()) {
-      const clientId = this.clientIds.get(subscriptionId)
-      return this.request<unknown>('POST', '/subscriptions/unregister', { clientId, subscriptionId, elementIds })
-    }
-    return this.request<unknown>('POST', `/subscriptions/${subscriptionId}/unregister`, { elementIds })
+    elementIds: string[],
+    maxDepth = 1
+  ): Promise<BulkOutcome> {
+    const clientId = this.clientIds.get(subscriptionId)
+    return bulkOutcome(
+      elementIds,
+      await this.requestEnvelope('POST', '/subscriptions/unregister', { clientId, subscriptionId, elementIds, maxDepth })
+    )
   }
 
   async sync(subscriptionId: string): Promise<SyncResponseItem[]> {
-    let raw: Array<Record<string, unknown>>
-
-    if (this.isV1()) {
-      // v1: subscriptionId in body; auto-unwrapped from {success, result: [...]}
-      // 1.0: server returns HTTP 206 when queue overflow caused update loss (partial content)
-      const lastSeq = this.syncSequenceNumbers.get(subscriptionId)
-      const clientId = this.clientIds.get(subscriptionId)
-      const { data, status } = await this.requestRaw<Array<Record<string, unknown>>>('POST', '/subscriptions/sync', {
-        clientId,
-        subscriptionId,
-        ...(lastSeq !== undefined ? { lastSequenceNumber: lastSeq } : {})
-      })
-      raw = data
-      if (status === 206) {
-        console.warn(`[i3x] sync 206: subscription ${subscriptionId} queue overflowed — some updates were dropped`)
-      }
-    } else {
-      raw = await this.request<Array<Record<string, unknown>>>('POST', `/subscriptions/${subscriptionId}/sync`)
+    // subscriptionId in body; auto-unwrapped from {success, result: [...]}
+    // The server returns HTTP 206 when queue overflow caused update loss (partial content)
+    const lastSeq = this.syncSequenceNumbers.get(subscriptionId)
+    const clientId = this.clientIds.get(subscriptionId)
+    const { data: raw, status } = await this.requestRaw<Array<Record<string, unknown>>>('POST', '/subscriptions/sync', {
+      clientId,
+      subscriptionId,
+      ...(lastSeq !== undefined ? { lastSequenceNumber: lastSeq } : {})
+    })
+    if (status === 206) {
+      console.warn(`[i3x] sync 206: subscription ${subscriptionId} queue overflowed, some updates were dropped`)
     }
 
     const items: SyncResponseItem[] = []
     for (const entry of raw ?? []) {
       if (Array.isArray(entry.updates)) {
-        // v1 release batch format: {sequenceNumber, updates: [{elementId, value, quality, timestamp}]}
+        // Batch format: {sequenceNumber, updates: [{elementId, value, quality, timestamp}]}
         const batchSeq = entry.sequenceNumber as number | undefined
         if (typeof batchSeq === 'number') {
           const current = this.syncSequenceNumbers.get(subscriptionId) ?? -1
           if (batchSeq > current) this.syncSequenceNumbers.set(subscriptionId, batchSeq)
         }
-        for (const update of entry.updates as Array<Record<string, unknown>>) {
-          items.push({
-            elementId: update.elementId as string,
-            value: update.value,
-            quality: (update.quality as string | null) ?? null,
-            timestamp: (update.timestamp as string | null) ?? null
-          })
-        }
-      } else if (typeof entry.elementId === 'string') {
-        // v1-beta flat format: {elementId, value, quality, timestamp, sequenceNumber}
-        const seq = entry.sequenceNumber
-        if (typeof seq === 'number') {
-          const current = this.syncSequenceNumbers.get(subscriptionId) ?? -1
-          if (seq > current) this.syncSequenceNumbers.set(subscriptionId, seq)
-        }
-        items.push({
-          elementId: entry.elementId,
-          value: entry.value,
-          quality: (entry.quality as string | null) ?? null,
-          timestamp: (entry.timestamp as string | null) ?? null
-        })
-      } else {
-        // v0 keyed format: {elementId: {data: [{value, quality, timestamp}]}}
-        for (const [elementId, payload] of Object.entries(entry)) {
-          const p = payload as Record<string, unknown>
-          if (p?.data && Array.isArray(p.data) && p.data[0]) {
-            const vqt = extractVQT(p.data[0] as Record<string, unknown>)
-            items.push({
-              elementId,
-              value: vqt.value,
-              quality: vqt.quality ?? null,
-              timestamp: vqt.timestamp ?? null
-            })
-          }
-        }
+        items.push(...subscriptionUpdateItems(entry.updates))
       }
     }
     return items
   }
 
-  // Returns the config needed to open an SSE stream.
-  // v0: GET /subscriptions/{id}/stream
-  // v1: POST /subscriptions/stream  (subscriptionId in body)
+  // Returns the config needed to open an SSE stream:
+  // POST /subscriptions/stream (clientId and subscriptionId in body)
   getStreamConfig(subscriptionId: string): StreamConfig {
-    if (this.isV1()) {
-      const clientId = this.clientIds.get(subscriptionId)
-      return {
-        url: `${this.baseUrl}/subscriptions/stream`,
-        method: 'POST',
-        postBody: { clientId, subscriptionId }
-      }
-    }
+    const clientId = this.clientIds.get(subscriptionId)
     return {
-      url: `${this.baseUrl}/subscriptions/${subscriptionId}/stream`,
-      method: 'GET'
+      url: `${this.baseUrl}/subscriptions/stream`,
+      method: 'POST',
+      postBody: { clientId, subscriptionId }
     }
   }
 
-  // Connection test — also detects API version (v0 vs v1)
+  // Connection test, also requires the server to be an i3X 1.0 release
   async testConnection(): Promise<boolean> {
     try {
-      await this.detectVersion()
+      await this.verifyServer()
       await this.getNamespaces()
       return true
-    } catch {
+    } catch (err) {
+      // Everything else collapses to a generic "failed to connect", but a
+      // timeout is worth naming: it's the difference between "wrong URL" and
+      // "the server is up and not answering". A server that is not an i3X 1.0
+      // release is a different answer again, and the caller says so, as it does
+      // for a server that answered 401/403 and so never got to say what it is.
+      if (err instanceof TimeoutError || err instanceof UnsupportedServerError || err instanceof AuthRequiredError) throw err
       return false
     }
   }

@@ -1,4 +1,4 @@
-# Windows Code Signing — Setup Guide
+# Windows Code Signing Setup Guide
 
 This guide explains how to sign the Windows installer for i3X Explorer using
 **Azure Trusted Signing** (formerly Azure Code Signing). Signed builds eliminate
@@ -17,7 +17,7 @@ The build script (`scripts/build-sign-win.ps1`) runs on a Windows machine and:
    the signature, and embed it into each `.exe`
 
 Authentication is handled via a service principal (app registration) in Entra ID.
-Your private key never leaves Azure — only the file hash is transmitted.
+Your private key never leaves Azure, only the file hash is transmitted.
 
 ---
 
@@ -82,7 +82,7 @@ You need four things in Azure:
 
 ---
 
-### Step 1 — Find your Tenant ID
+### Step 1: Find your Tenant ID
 
 > **Portal path:** `Microsoft Entra ID` → `Overview`
 
@@ -94,13 +94,13 @@ AZURE_TENANT_ID = xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 ---
 
-### Step 2 — Create an App Registration (or use an existing one)
+### Step 2: Create an App Registration (or use an existing one)
 
 > **Portal path:** `Microsoft Entra ID` → `App registrations` → `New registration`
 
 1. Give it a name (e.g. `i3X Explorer Build`)
 2. Leave **Supported account types** as *Single tenant*
-3. No redirect URI needed — click **Register**
+3. No redirect URI needed, click **Register**
 
 On the app's **Overview** page, copy the **Application (client) ID**:
 
@@ -114,7 +114,7 @@ AZURE_CLIENT_ID = xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 1. Set a description and expiry (1 or 2 years)
 2. Click **Add**
-3. **Copy the `Value` immediately** — it is only shown once
+3. **Copy the `Value` immediately**, it is only shown once
 
 ```
 AZURE_CLIENT_SECRET = <the value shown, not the Secret ID>
@@ -125,18 +125,18 @@ AZURE_CLIENT_SECRET = <the value shown, not the Secret ID>
 
 ---
 
-### Step 3 — Find your Trusted Signing account details
+### Step 3: Find your Trusted Signing account details
 
 > **Portal path:** `Trusted Signing accounts` → (your account) → `Overview`
 
 On the Overview page you will find:
 
-- **Name** — this is your account name:
+- **Name** is your account name:
   ```
   AZURE_TRUSTED_SIGNING_ACCOUNT = your-account-name
   ```
 
-- **URI** — this is the endpoint (includes the region, e.g. `eus` for East US):
+- **URI** is the endpoint (includes the region, e.g. `eus` for East US):
   ```
   AZURE_TRUSTED_SIGNING_ENDPOINT = https://eus.codesigning.azure.net
   ```
@@ -154,7 +154,7 @@ AZURE_TRUSTED_SIGNING_PROFILE = your-profile-name
 
 ---
 
-### Step 4 — Grant the app registration permission to sign
+### Step 4: Grant the app registration permission to sign
 
 This is the step people most often miss.
 
@@ -236,14 +236,14 @@ Status SignerCertificate
 
 | Symptom | Likely cause |
 |---------|-------------|
-| `AADSTS7000215: Invalid client secret` | Secret expired or wrong value copied — rotate in Entra portal |
-| `AuthorizationFailed` | App registration not assigned the *Trusted Signing Certificate Profile Signer* role — see Step 4 |
-| `signtool.exe` not found | Windows SDK not installed — see Prerequisites |
+| `AADSTS7000215: Invalid client secret` | Secret expired or wrong value copied, rotate in Entra portal |
+| `AuthorizationFailed` | App registration not assigned the *Trusted Signing Certificate Profile Signer* role, see Step 4 |
+| `signtool.exe` not found | Windows SDK not installed, see Prerequisites |
 | Signature shows as valid but SmartScreen still warns | Normal for brand-new accounts; reputation builds over ~days/weeks of signed releases being distributed |
-| `The parameter is incorrect` from signtool | dlib version mismatch — delete `scripts\.azure-signing\` and let the script re-download |
-| `Cannot create symbolic link: A required privilege is not held` | Developer Mode is not enabled and script is not running as Administrator — see Prerequisites §4 |
-| `'0xEF' is an invalid start of a value` from signtool | `metadata.json` was written with a UTF-8 BOM — ensure you are running the latest version of the build script |
-| `magick: command not found` / icon not generated | ImageMagick not installed or not on PATH — see Prerequisites §3; open a new shell after installing |
+| `The parameter is incorrect` from signtool | dlib version mismatch, delete `scripts\.azure-signing\` and let the script re-download |
+| `Cannot create symbolic link: A required privilege is not held` | Developer Mode is not enabled and script is not running as Administrator, see Prerequisites §4 |
+| `'0xEF' is an invalid start of a value` from signtool | `metadata.json` was written with a UTF-8 BOM, ensure you are running the latest version of the build script |
+| `magick: command not found` / icon not generated | ImageMagick not installed or not on PATH, see Prerequisites §3; open a new shell after installing |
 
 ---
 

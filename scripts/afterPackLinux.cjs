@@ -1,4 +1,4 @@
-// afterPackLinux.cjs — injects --no-sandbox for Linux AppImage/tar.gz builds
+// afterPackLinux.cjs: injects --no-sandbox for Linux AppImage/tar.gz builds
 //
 // AppImages mount squashfs as a regular user, so chrome-sandbox loses its SUID
 // bit and Chromium refuses to start. executableArgs only reaches the .desktop
@@ -22,7 +22,7 @@ exports.default = async function afterPack(context) {
   const realExePath = path.join(appOutDir, realExeName)
 
   if (!fs.existsSync(exePath)) {
-    console.warn(`[afterPackLinux] executable not found: ${exePath} — skipping`)
+    console.warn(`[afterPackLinux] executable not found: ${exePath}, skipping`)
     return
   }
 

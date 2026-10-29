@@ -1,39 +1,44 @@
 import type { Namespace } from '../../api/types'
-import { JsonViewer } from './JsonViewer'
+import { describeGetObjectTypes } from '../../api/requestShape'
+import { Card, Field } from '../main/primitives'
+import { DescriptionCard } from '../main/DescriptionCard'
+import { CardCodeSample } from './CodeSamplePanel'
+import { DataDisclosure, metadataExcept } from './DataDisclosure'
 
 interface NamespaceDetailProps {
   namespace: Namespace
 }
 
 export function NamespaceDetail({ namespace }: NamespaceDetailProps) {
+  // No heading here: SimpleDetailView (the shell every simple detail renders
+  // in) already shows the display name and the "Namespace" kind label.
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-i3x-text mb-1">
-          {namespace.displayName}
-        </h2>
-        <p className="text-sm text-i3x-text-muted">Namespace</p>
-      </div>
+      <DescriptionCard metadata={namespace.metadata} />
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs text-i3x-text-muted mb-1">URI</label>
-          <code className="block px-3 py-2 bg-i3x-surface rounded text-sm text-i3x-text break-all">
-            {namespace.uri}
-          </code>
+      <Card
+        title="Identity"
+        actions={
+          <CardCodeSample
+            descriptor={describeGetObjectTypes(namespace.uri)}
+            title={namespace.displayName}
+            subtitle="Namespace"
+          />
+        }
+      >
+        <div className="grid gap-x-4 gap-y-3.5 sm:grid-cols-2">
+          <Field label="URI" value={namespace.uri} />
+          <Field label="Display Name" value={namespace.displayName} />
         </div>
-        <div>
-          <label className="block text-xs text-i3x-text-muted mb-1">Display Name</label>
-          <code className="block px-3 py-2 bg-i3x-surface rounded text-sm text-i3x-text">
-            {namespace.displayName}
-          </code>
-        </div>
-      </div>
+      </Card>
 
-      <div>
-        <label className="block text-xs text-i3x-text-muted mb-1">Raw Data</label>
-        <JsonViewer data={namespace} />
-      </div>
+      <DataDisclosure
+        title="Namespace Data"
+        sections={[
+          { label: 'Metadata', data: metadataExcept(namespace.metadata, ['description']) },
+          { label: 'Raw Namespace', data: namespace },
+        ]}
+      />
     </div>
   )
 }

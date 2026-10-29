@@ -16,7 +16,7 @@ exports.default = async function notarize(context) {
 
   if (!APPLE_ID || !APPLE_APP_SPECIFIC_PASSWORD || !APPLE_TEAM_ID) {
     console.log(
-      '\n⚠️  Notarization skipped — to enable, set:\n' +
+      '\n⚠️  Notarization skipped. To enable, set:\n' +
       '     APPLE_ID                   (your Apple ID email)\n' +
       '     APPLE_APP_SPECIFIC_PASSWORD (from appleid.apple.com → App-Specific Passwords)\n' +
       '     APPLE_TEAM_ID              (10-char ID from developer.apple.com/account)\n'
