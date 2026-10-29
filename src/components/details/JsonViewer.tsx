@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CopyButton } from './CopyButton'
 
 interface JsonViewerProps {
@@ -9,13 +9,22 @@ interface JsonViewerProps {
 export function JsonViewer({ data, initialExpanded = false }: JsonViewerProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
 
-  const jsonString = JSON.stringify(data, null, 2)
-  const lineCount = jsonString.split('\n').length
+  const { jsonString, lineCount } = useMemo(() => {
+    const text = JSON.stringify(data, null, 2)
+    let lines = 1
+    for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) lines++
+    return { jsonString: text, lineCount: lines }
+  }, [data])
 
   // Show collapsed view for large objects
   const shouldCollapse = lineCount > 10
+  const showCollapsed = shouldCollapse && !isExpanded
+  const preview = useMemo(
+    () => (showCollapsed ? JSON.stringify(data).slice(0, 100) : ''),
+    [data, showCollapsed]
+  )
 
-  if (!shouldCollapse || isExpanded) {
+  if (!showCollapsed) {
     return (
       <div className="relative">
         <pre className="px-3 py-2 bg-i3x-surface rounded text-sm text-i3x-text overflow-auto max-h-96">
@@ -37,7 +46,6 @@ export function JsonViewer({ data, initialExpanded = false }: JsonViewerProps) {
   }
 
   // Collapsed view
-  const preview = JSON.stringify(data).slice(0, 100)
   return (
     <div
       onClick={() => setIsExpanded(true)}

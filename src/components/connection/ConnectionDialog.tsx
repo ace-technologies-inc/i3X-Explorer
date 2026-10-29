@@ -1,17 +1,23 @@
 import { useState } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import type { Credentials } from '../../stores/connection'
+import { performConnect, performDisconnect } from '../../services/connection'
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
 type AuthMethod = 'none' | 'basic' | 'bearer' | 'header'
 
+const normalizeUrl = (url: string) => url.replace(/\/+$/, '')
+
 export function ConnectionDialog() {
   const {
     serverUrl,
+    credentials: activeCredentials,
+    isConnected,
     recentUrls,
     ignoreCertErrors: storedIgnoreCertErrors,
     setServerUrl,
+    setServerUrlUserSet,
     setCredentials,
     saveCredentialsForUrl,
     getCredentialsForUrl,
@@ -37,21 +43,46 @@ export function ConnectionDialog() {
   const [headerName, setHeaderName] = useState(savedCreds?.type === 'header' ? savedCreds.headerName : '')
   const [headerValue, setHeaderValue] = useState(savedCreds?.type === 'header' ? savedCreds.headerValue : '')
 
-  const handleSave = () => {
-    setServerUrl(inputUrl)
-    let newCredentials: Credentials | null = null
+  const buildCredentials = (): Credentials | null => {
     if (authMethod === 'basic' && username) {
-      newCredentials = { type: 'basic', username, password }
-    } else if (authMethod === 'bearer' && token) {
-      newCredentials = { type: 'bearer', token }
-    } else if (authMethod === 'header' && headerName && headerValue) {
-      newCredentials = { type: 'header', headerName: headerName.trim(), headerValue }
+      return { type: 'basic', username, password }
     }
+    if (authMethod === 'bearer' && token) {
+      return { type: 'bearer', token }
+    }
+    if (authMethod === 'header' && headerName && headerValue) {
+      return { type: 'header', headerName: headerName.trim(), headerValue }
+    }
+    return null
+  }
+
+  // The live client captured its URL and credentials at construction, so a
+  // Save that changes either while connected must reconnect, otherwise the
+  // status bar shows the new server while requests keep hitting the old one.
+  // (ignoreCertErrors applies live via IPC and never needs a reconnect.)
+  const changesConnection = (newCredentials: Credentials | null) =>
+    isConnected &&
+    (normalizeUrl(inputUrl) !== normalizeUrl(serverUrl) ||
+      JSON.stringify(newCredentials) !== JSON.stringify(activeCredentials))
+
+  const handleSave = async () => {
+    const newCredentials = buildCredentials()
+    const reconnect = changesConnection(newCredentials)
+
+    setServerUrl(inputUrl)
+    // Saving the dialog is the explicit user choice; from now on a ?server=
+    // deep link must not override it.
+    setServerUrlUserSet(true)
     setCredentials(newCredentials)
     saveCredentialsForUrl(inputUrl, newCredentials)
     setIgnoreCertErrors(ignoreCertErrors)
     window.electronAPI?.setIgnoreCertErrors(ignoreCertErrors)
     setShowConnectionDialog(false)
+
+    if (reconnect) {
+      await performDisconnect()
+      await performConnect()
+    }
   }
 
   const handleCancel = () => {
@@ -270,7 +301,7 @@ export function ConnectionDialog() {
             disabled={!inputUrl}
             className="px-4 py-1.5 text-sm bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Save
+            {changesConnection(buildCredentials()) ? 'Save & Reconnect' : 'Save'}
           </button>
         </div>
       </div>

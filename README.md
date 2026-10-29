@@ -6,17 +6,19 @@ The official cross-platform desktop application for browsing and monitoring [I3X
 
 ## Features
 
-- Connect to any I3X-compliant server (auto-detects v0, v1-beta, and v1 wire formats)
+- Connect to any i3X 1.0 server (servers implementing an earlier spec are refused with a message saying what they reported)
 - Three browse views in one tree:
   - **Namespaces** → Object Types → Object Instances
   - **Objects** (flat list of every instance the server exposes)
   - **Hierarchy** (parent/child structure, with one root per upstream server when fronting a wrapper)
+    - Ordinary children appear first, followed by `HasComponent` targets sorted by element type name (then element name). Components use a theme-aware purple accent (soft lavender in dark mode) on their icons, names, and counts, distinct from green graph relationship groups, which remain last. Independent **Graph Relationships** and **Component Relationships** toggles above the tree control visibility in the Hierarchy view. Components are shown by default; hiding them also hides their subtrees and updates child counts and chevrons. Toggle choices are retained across reconnects during the session.
+    - Parent-linked children are merged with outgoing child/component targets from the full related response and deduplicated by element ID. Components can therefore appear beneath their composition owner even when their `parentId` points elsewhere, without duplicating children reported by both sources. Parent/inverse edges are not rendered as children.
 - Inline filter bar pinned at the top of the tree; deep matches surface their ancestor namespaces, types, and hierarchy parents so they stay visible
 - Tree scrolls horizontally for long/deeply-nested labels, and the whole tree panel collapses/expands via the toolbar's panel-toggle button
 - Top-level folders auto-expand on search so matches are visible without manual clicks
-- Object counts at every level — folders, namespaces, types, and hierarchy nodes
+- Object counts at every level, folders, namespaces, types, and hierarchy nodes
 - Authoritative chevron state: branches that have no expandable children don't show a chevron, even when the underlying object claims to be compositional
-- View object details, metadata, schema extensions, and current values — with a Parsed/Raw toggle to inspect the raw HTTP response, and a copy-to-clipboard icon on every JSON view
+- View object details, metadata, schema extensions, and current values, with a Parsed/Raw toggle to inspect the raw HTTP response, and a copy-to-clipboard icon on every JSON view
 - Relationship graph for non-compositional relationships; click any node to navigate directly to it in the tree; hover to see full names. The graph sizes to its content and stays centered
 - Subscribe to objects for real-time updates via SSE (with polling fallback) and a trend chart for numeric values; subscriptions auto-recover transparently if the server expires them
 - Global object search modal (⌘K / Ctrl+K) that navigates and expands to any match by name or elementId
@@ -102,7 +104,7 @@ npm run build
 
 # Manually Build Platform-specific
 npm run build:mac          # macOS (Intel + Apple Silicon)
-npm run build:win          # Windows (x64, x86, portable) — unsigned
+npm run build:win          # Windows (x64, x86, portable), unsigned
 npm run build:linux        # Linux (AppImage x64 + ARM64)
 npm run build:web          # Web (static files → dist-web/)
 npm run build:all          # All platforms
@@ -110,7 +112,7 @@ npm run build:all          # All platforms
 
 Build artifacts are output to `release/{version}/`. The web build produces a `i3x-explorer-{version}-web.zip` ready to extract on any static web server.
 
-> **Note:** `build-all.sh win` and `npm run build:win` produce unsigned Windows builds. For signed Windows builds (required to suppress SmartScreen), use the dedicated PowerShell script on a Windows machine — see [Windows Signing](#windows-signing) below.
+> **Note:** `build-all.sh win` and `npm run build:win` produce unsigned Windows builds. For signed Windows builds (required to suppress SmartScreen), use the dedicated PowerShell script on a Windows machine, see [Windows Signing](#windows-signing) below.
 
 ### Web Deployment
 
@@ -137,7 +139,7 @@ Create a `config.json` alongside `index.html` on the web server:
 | `serverUrl` | Pre-fills the Server URL field in the connection dialog |
 | `recentUrls` | Pre-populates the Recent Connections list |
 
-`config.json` is only applied on a user's **first visit**. Once they have saved settings in their browser, `config.json` is ignored — their local preferences take priority.
+`config.json` is only applied on a user's **first visit**. Once they have saved settings in their browser, `config.json` is ignored, their local preferences take priority.
 
 The default `config.json` shipped in `dist-web/` points at `https://api.i3x.dev/v1`. Replace it (or delete it) as needed for your deployment.
 
@@ -162,7 +164,7 @@ sudo systemctl restart i3x-explorer-web
 
 To produce notarized macOS builds (required for arm64 downloads to open without a "app is damaged" error), you need an [Apple Developer account](https://developer.apple.com/) and a **Developer ID Application** certificate in your keychain.
 
-1. **Create the certificate** — Xcode → Settings → Accounts → your Apple account → Manage Certificates → `+` → **Developer ID Application**
+1. **Create the certificate**: Xcode → Settings → Accounts → your Apple account → Manage Certificates → `+` → **Developer ID Application**
 
 2. **Create an app-specific password** at [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
 
@@ -176,7 +178,7 @@ To produce notarized macOS builds (required for arm64 downloads to open without 
    export APPLE_TEAM_ID="XXXXXXXXXX"
    ```
 
-5. **Build** — `./scripts/build-all.sh mac` will source the file automatically and notarize both Intel and Apple Silicon DMGs.
+5. **Build**: `./scripts/build-all.sh mac` will source the file automatically and notarize both Intel and Apple Silicon DMGs.
 
 If `set-apple-vars.sh` is absent or the env vars are unset, the build completes unsigned with a warning.
 
@@ -196,7 +198,7 @@ This script builds the app, generates icons, and signs all `.exe` files using **
 - Azure Trusted Signing credentials in `scripts\set-azure-vars.ps1` (git-ignored)
    - See [WINDOWS-SIGNING.md](WINDOWS-SIGNING.md) for full Azure setup instructions.
 
-If you don't have signing set up, unsigned builds still work — users just need to click **More info → Run anyway** in the SmartScreen dialog.
+If you don't have signing set up, unsigned builds still work, users just need to click **More info → Run anyway** in the SmartScreen dialog.
 
 ### Updating the Icon
 

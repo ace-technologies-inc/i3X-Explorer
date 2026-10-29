@@ -1,6 +1,10 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useExplorerStore } from '../../stores/explorer'
 import { getClient } from '../../api/client'
+import { isScalarSchemaType } from '../tree/treeData'
+import { ensureAllObjectsLoaded, loadHierarchicalRoots } from '../../services/catalog'
+import { SearchIcon, CloseIcon, CubeIcon, ActivityIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
 import type { ObjectInstance } from '../../api/types'
 
 interface SearchResult {
@@ -13,13 +17,15 @@ interface SearchModalProps {
   onClose: () => void
 }
 
-function buildAncestorPath(obj: ObjectInstance, allObjects: ObjectInstance[]): string[] {
+function buildAncestorPath(obj: ObjectInstance, objectIndex: Map<string, ObjectInstance>): string[] {
   const path: string[] = []
   const visited = new Set<string>()
   let current = obj
   while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
     visited.add(current.elementId)
-    const parent = allObjects.find(o => o.elementId === current.parentId)
+    // O(1) index lookup: this runs per ancestor for up to 50 results per
+    // keystroke, so allObjects.find here was ~20M comparisons on a 50k catalog.
+    const parent = objectIndex.get(current.parentId)
     if (!parent) break
     path.unshift(parent.displayName || parent.elementId)
     current = parent
@@ -37,14 +43,12 @@ export function SearchModal({ onClose }: SearchModalProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const { selectItem, setAllObjects, setHierarchicalRoots, objectTypes } = useExplorerStore()
-  const typeIndex = useMemo(() => new Map(objectTypes.map(t => [t.elementId, t])), [objectTypes])
-  const SCALAR_TYPES = useMemo(() => new Set(['number', 'integer', 'string', 'boolean']), [])
-  const isLeafType = (typeId: string) => {
-    const raw = typeIndex.get(typeId)?.schema?.type
-    const t = Array.isArray(raw) ? (raw as string[]).find(x => SCALAR_TYPES.has(x)) ?? '' : String(raw ?? '')
-    return SCALAR_TYPES.has(t)
-  }
+  const { selectItem } = useExplorerStore()
+  // Same signal the tree row icons use (shared helper + store-maintained
+  // index), so a result's icon always matches its icon in the tree.
+  const typeIndex = useExplorerStore(s => s.typeIndex)
+  const isLeafType = (typeId: string) =>
+    isScalarSchemaType(typeIndex.get(typeId)?.schema?.type)
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -67,37 +71,34 @@ export function SearchModal({ onClose }: SearchModalProps) {
 
     setIsLoading(true)
     try {
-      // Use cached store values; fetch if not yet loaded
-      let objects = useExplorerStore.getState().allObjects
-      let roots = useExplorerStore.getState().hierarchicalRoots
-
-      if (objects.length === 0) {
-        objects = await client.getObjects()
-        setAllObjects(objects)
-      }
+      await ensureAllObjectsLoaded(client)
+      const { allObjects: objects, hierarchicalRoots } = useExplorerStore.getState()
+      let roots = hierarchicalRoots
       if (roots.length === 0) {
-        roots = await client.getObjects(undefined, false, true)
-        setHierarchicalRoots(roots)
+        roots = await loadHierarchicalRoots(client)
       }
 
       const lower = searchQuery.toLowerCase()
       const rootIds = new Set(roots.map(r => r.elementId))
+      // Read fresh: a first-run fetch above rebuilt the store's index.
+      const objectIndex = useExplorerStore.getState().objectIndex
 
-      const matches = objects
-        .filter(obj =>
-          (obj.displayName && obj.displayName.toLowerCase().includes(lower)) ||
-          obj.elementId.toLowerCase().includes(lower)
-        )
-        .slice(0, MAX_RESULTS)
-
-      const searchResults: SearchResult[] = matches.map(obj => {
+      // One O(n) pass that stops at the cap, no throwaway filter/slice/map
+      // arrays. Cap is applied in store order (before sort), same as before.
+      const searchResults: SearchResult[] = []
+      for (const obj of objects) {
+        const name = obj.displayName
+        if (!(name && name.toLowerCase().includes(lower)) && !obj.elementId.toLowerCase().includes(lower)) {
+          continue
+        }
         const useHierarchy = rootIds.has(obj.elementId) || !!(obj.parentId && obj.parentId !== '/')
-        return {
+        searchResults.push({
           object: obj,
           useHierarchy,
-          hierarchyPath: useHierarchy ? buildAncestorPath(obj, objects) : [],
-        }
-      })
+          hierarchyPath: useHierarchy ? buildAncestorPath(obj, objectIndex) : [],
+        })
+        if (searchResults.length >= MAX_RESULTS) break
+      }
 
       // Hierarchy matches first, then alphabetical within each group
       searchResults.sort((a, b) => {
@@ -112,7 +113,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [setAllObjects, setHierarchicalRoots])
+  }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => performSearch(query), 250)
@@ -130,8 +131,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
       // Ensure roots are loaded so the Hierarchy folder renders correctly
       let roots = useExplorerStore.getState().hierarchicalRoots
       if (roots.length === 0) {
-        roots = await client.getObjects(undefined, false, true)
-        setHierarchicalRoots(roots)
+        roots = await loadHierarchicalRoots(client)
       }
 
       newExpanded.add('folder:hierarchical')
@@ -157,7 +157,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
     }
 
     onClose()
-  }, [selectItem, setHierarchicalRoots, onClose])
+  }, [selectItem, onClose])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     switch (e.key) {
@@ -190,7 +190,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-i3x-border">
-          <span className="text-i3x-text-muted text-base flex-shrink-0">🔍</span>
+          <SearchIcon size={16} className="text-i3x-text-muted flex-shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -200,13 +200,17 @@ export function SearchModal({ onClose }: SearchModalProps) {
             className="flex-1 bg-transparent text-sm text-i3x-text outline-none placeholder:text-i3x-text-muted"
           />
           {isLoading && (
-            <span className="text-xs text-i3x-text-muted flex-shrink-0">Searching…</span>
+            <span className="flex items-center gap-1.5 text-xs text-i3x-text-muted flex-shrink-0">
+              <Spinner size={12} />
+              Searching…
+            </span>
           )}
           <button
             onClick={onClose}
-            className="text-i3x-text-muted hover:text-i3x-text text-xl leading-none flex-shrink-0"
+            aria-label="Close search"
+            className="text-i3x-text-muted hover:text-i3x-text flex-shrink-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
           >
-            ×
+            <CloseIcon size={14} />
           </button>
         </div>
 
@@ -225,8 +229,10 @@ export function SearchModal({ onClose }: SearchModalProps) {
                     i === activeIndex ? 'bg-i3x-bg' : ''
                   }`}
                 >
-                  <span className="text-base flex-shrink-0 mt-0.5">
-                    {isLeafType(result.object.typeId) ? '📊' : '📦'}
+                  <span className="flex-shrink-0 mt-0.5 flex items-center">
+                    {isLeafType(result.object.typeId)
+                      ? <ActivityIcon size={16} className="text-i3x-violet" />
+                      : <CubeIcon size={16} className="text-i3x-secondary" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

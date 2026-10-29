@@ -1,6 +1,6 @@
 {
   "name": "i3x-explorer",
-  "version": "1.0.0",
+  "version": "1.1.0-0",
   "description": "Cross-platform desktop client for exploring I3X API servers",
   "main": "dist-electron/main.js",
   "type": "module",
@@ -20,9 +20,9 @@
   "scripts": {
     "dev": "vite",
     "dev:web": "vite --config vite.web.config.ts",
-    "clean": "rm -rf dist dist-electron dist-web",
+    "clean": "node -e \"const fs=require('fs');['dist','dist-electron','dist-web'].forEach(d=>fs.rmSync(d,{recursive:true,force:true}))\"",
     "build": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json",
-    "build:vite": "vite build && cp electron/preload.cjs dist-electron/preload.cjs",
+    "build:vite": "vite build && node -e \"const fs=require('fs');fs.mkdirSync('dist-electron',{recursive:true});fs.copyFileSync('electron/preload.cjs','dist-electron/preload.cjs')\"",
     "build:mac": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac",
     "build:mac:arm64": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --arm64",
     "build:mac:x64": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --x64",
@@ -33,31 +33,43 @@
     "build:web": "vite build --config vite.web.config.ts",
     "preview": "vite preview",
     "preview:web": "vite preview --config vite.web.config.ts",
-    "lint": "eslint src --ext .ts,.tsx",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint src electron --max-warnings 0",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.104.1",
     "@tanstack/react-virtual": "^3.14.5",
     "clsx": "^2.1.0",
+    "comlink": "^4.4.2",
+    "idb-keyval": "^6.3.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.17",
     "electron": "^41.1.1",
     "electron-builder": "^26.8.1",
-    "eslint": "^8.56.0",
-    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "jsdom": "^26.1.0",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
-    "tsx": "^4.21.0",
     "typescript": "^5.3.3",
+    "typescript-eslint": "^8.65.0",
     "vite": "^7.3.2",
     "vite-plugin-electron": "^0.28.2",
-    "vite-plugin-electron-renderer": "^0.14.5"
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "vitest": "^4.1.10"
   }
 }

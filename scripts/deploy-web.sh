@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy-web.sh — build i3X Explorer web app and reload nginx
+# deploy-web.sh: build i3X Explorer web app and reload nginx
 # Run manually after a git pull, or automatically via the systemd service.
 set -euo pipefail
 
@@ -35,7 +35,7 @@ if systemctl is-active --quiet nginx; then
   sudo systemctl reload nginx
   echo "[i3x] nginx reloaded."
 else
-  echo "[i3x] nginx is not running — skipping reload."
+  echo "[i3x] nginx is not running, skipping reload."
 fi
 
 echo "[i3x] Done."

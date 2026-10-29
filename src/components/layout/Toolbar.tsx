@@ -1,9 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useConnectionStore } from '../../stores/connection'
-import { useExplorerStore } from '../../stores/explorer'
-import { useSubscriptionsStore } from '../../stores/subscriptions'
-import { createClient, destroyClient, getClient, type ApiVersion } from '../../api/client'
+import { POLL_OPTIONS, useExplorerStore } from '../../stores/explorer'
+import { useDiffStore } from '../../stores/diff'
+import { performConnect, performDisconnect } from '../../services/connection'
+import { clearCatalogCache } from '../../data/catalogData'
+import { setPerfTraceEnabled } from '../../diagnostics/perfTrace'
+import { usePerfTraceEnabled } from '../../diagnostics/PerfProfiler'
 import { SearchModal } from '../search/SearchModal'
+import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon, CameraIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
 import iconPng from '/icon.png'
 
 type Theme = 'light' | 'dark'
@@ -14,20 +20,15 @@ function getInitialTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-const POLL_OPTIONS = [
-  { label: 'Refresh every 15 seconds', ms: 15_000 },
-  { label: 'Refresh every 30 seconds', ms: 30_000 },
-  { label: 'Refresh every 60 seconds', ms: 60_000 },
-  { label: 'No automatic refresh', ms: 0 },
-]
-
 export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [apiVersion, setApiVersion] = useState<ApiVersion | null>(null)
-  const [showV0Blocked, setShowV0Blocked] = useState(false)
-  const [redirectNotice, setRedirectNotice] = useState<{ from: string; to: string } | null>(null)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [showSnapshotMenu, setShowSnapshotMenu] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const perfTraceEnabled = usePerfTraceEnabled()
+  // One hidden file input serves both load actions; this ref says which one is pending.
+  const snapshotFileTarget = useRef<'baseline' | 'comparison'>('baseline')
+  const snapshotFileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -35,26 +36,87 @@ export function Toolbar() {
   }, [theme])
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
+  // Shallow picks, not bare store hooks: a bare hook re-renders the toolbar on
+  // every store write. Actions are stable refs, so including them is free.
   const {
     serverUrl,
-    credentials,
-    getCredentialsForUrl,
-    saveCredentialsForUrl,
-    setCredentials,
-    setServerUrl,
     isConnected,
     isConnecting,
     error,
     setShowConnectionDialog,
-    setConnected,
-    setConnecting,
-    setError,
-    addRecentUrl,
-    disconnect: disconnectStore
-  } = useConnectionStore()
+    redirectNotice,
+    setRedirectNotice,
+    unsupportedServer,
+    setUnsupportedServer
+  } = useConnectionStore(useShallow(s => ({
+    serverUrl: s.serverUrl,
+    isConnected: s.isConnected,
+    isConnecting: s.isConnecting,
+    error: s.error,
+    setShowConnectionDialog: s.setShowConnectionDialog,
+    redirectNotice: s.redirectNotice,
+    setRedirectNotice: s.setRedirectNotice,
+    unsupportedServer: s.unsupportedServer,
+    setUnsupportedServer: s.setUnsupportedServer
+  })))
 
-  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar } = useExplorerStore()
-  const { clearAll: clearSubscriptions } = useSubscriptionsStore()
+  const { pollIntervalMs, setPollIntervalMs, catalogCacheEnabled, setCatalogCacheEnabled, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore(useShallow(s => ({
+    pollIntervalMs: s.pollIntervalMs,
+    setPollIntervalMs: s.setPollIntervalMs,
+    catalogCacheEnabled: s.catalogCacheEnabled,
+    setCatalogCacheEnabled: s.setCatalogCacheEnabled,
+    triggerManualRefresh: s.triggerManualRefresh,
+    sidebarCollapsed: s.sidebarCollapsed,
+    toggleSidebar: s.toggleSidebar,
+    goBack: s.goBack,
+    goForward: s.goForward,
+    selectItem: s.selectItem
+  })))
+  const objectCount = useExplorerStore(s => s.allObjects.length)
+  const {
+    snapshotBusy,
+    hasBaseline,
+    hasComparison,
+    captureAndSave,
+    loadBaselineFile,
+    loadComparisonFile,
+    clearComparison,
+    openDiffView,
+    clearBaseline,
+  } = useDiffStore(useShallow(s => ({
+    snapshotBusy: s.busy,
+    hasBaseline: s.baseline !== null,
+    hasComparison: s.comparison !== null,
+    captureAndSave: s.captureAndSave,
+    loadBaselineFile: s.loadBaselineFile,
+    loadComparisonFile: s.loadComparisonFile,
+    clearComparison: s.clearComparison,
+    openDiffView: s.openView,
+    clearBaseline: s.clearBaseline,
+  })))
+
+  // Clearing the selection is what "Home" means: the main panel renders its
+  // Home shell whenever nothing is selected and no page is open. Selecting is
+  // enough to leave the diff or insights page too, since a selection stop
+  // carries no page, even when the selection itself doesn't change.
+  const showHome = () => selectItem(null)
+
+  const handleSnapshotFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    // Reset so picking the same file again re-fires the change event.
+    e.target.value = ''
+    if (!file) return
+    if (snapshotFileTarget.current === 'baseline') void loadBaselineFile(file)
+    else void loadComparisonFile(file)
+  }
+
+  const pickSnapshotFile = (target: 'baseline' | 'comparison') => {
+    snapshotFileTarget.current = target
+    setShowSnapshotMenu(false)
+    snapshotFileInput.current?.click()
+  }
+  const canGoBack = useExplorerStore(s => s.historyIndex > 0)
+  const canGoForward = useExplorerStore(s => s.historyIndex < s.history.length - 1)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -67,96 +129,41 @@ export function Toolbar() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isConnected])
 
-  const handleConnect = async () => {
-    setConnecting(true)
-    setError(null)
-    setRedirectNotice(null)
-
-    // Use saved credentials if none are currently set
-    const activeCredentials = credentials ?? getCredentialsForUrl(serverUrl)
-    if (activeCredentials && !credentials) {
-      setCredentials(activeCredentials)
-    }
-
-    try {
-      const client = createClient(serverUrl, activeCredentials)
-      const success = await client.testConnection()
-
-      if (success) {
-        const detectedVersion = client.getApiVersion()
-        if (detectedVersion === 'v0') {
-          destroyClient()
-          setConnecting(false)
-          setShowV0Blocked(true)
-          return
-        }
-        setConnected(true)
-        setApiVersion(detectedVersion)
-
-        // The server may have redirected during version detection (e.g. http → https);
-        // the client adopted the final URL. Sync it back to the store so the toolbar
-        // shows the real URL, future connects skip the redirect, and saved credentials
-        // follow the new URL. Compare against the trailing-slash-stripped input since
-        // the client constructor strips it too.
-        const finalUrl = client.getBaseUrl()
-        if (finalUrl !== serverUrl.replace(/\/$/, '')) {
-          setServerUrl(finalUrl)
-          if (activeCredentials) {
-            saveCredentialsForUrl(finalUrl, activeCredentials)
-          }
-          setRedirectNotice({ from: serverUrl, to: finalUrl })
-        }
-        addRecentUrl(finalUrl)
-
-        // Load initial data
-        setLoading(true)
-        const [namespaces, objectTypes] = await Promise.all([
-          client.getNamespaces(),
-          client.getObjectTypes()
-        ])
-        setNamespaces(namespaces)
-        setObjectTypes(objectTypes)
-        setLoading(false)
-
-        // Fire-and-forget: prefetch flat object list + hierarchy roots so the
-        // tree's [count] indicators show before the user expands those folders.
-        // Doesn't block the connect flow; expansion later refetches with
-        // composition resolution, so chevron accuracy isn't affected.
-        client.getObjects().then(setAllObjects).catch(() => {})
-        client.getObjects(undefined, false, true).then(setHierarchicalRoots).catch(() => {})
-      } else {
-        setError('Failed to connect to server')
-        destroyClient()
+  // X1/X2, the side buttons on most mice. Electron only, in the web build they
+  // drive the browser's own history and taking them over would strand the SPA.
+  useEffect(() => {
+    if (!window.electronAPI) return
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault()
+        goBack()
+      } else if (e.button === 4) {
+        e.preventDefault()
+        goForward()
       }
-    } catch (err) {
-      setLoading(false)
-      setError(err instanceof Error ? err.message : 'Connection failed')
-      destroyClient()
     }
-  }
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => window.removeEventListener('mouseup', handleMouseUp)
+  }, [goBack, goForward])
 
-  const handleDisconnect = async () => {
-    const client = getClient()
-    if (client) {
-      const ids = Array.from(useSubscriptionsStore.getState().subscriptions.keys())
-      await Promise.allSettled(ids.map(id => client.deleteSubscription(id)))
-    }
-
-    destroyClient()
-    disconnectStore()
-    resetExplorer()
-    clearSubscriptions()
-    setApiVersion(null)
-    setRedirectNotice(null)
-  }
+  // The flows live in services/connection.ts so the connection dialog can
+  // re-run them on Save-while-connected.
+  const handleConnect = () => performConnect()
+  const handleDisconnect = () => performDisconnect()
 
   return (
-    <div className="h-12 bg-i3x-surface border-b border-i3x-border flex items-center px-4 gap-4 drag-region">
+    <div className="h-12 bg-i3x-surface border-b border-i3x-border flex items-center px-3 gap-2 sm:gap-3 drag-region flex-shrink-0">
       {/* macOS traffic light spacing */}
       {window.electronAPI?.platform === 'darwin' && <div className="w-16" />}
 
-      <img src={iconPng} alt="" className="w-5 h-5" />
-      <h1 className="text-sm font-semibold text-i3x-text">i3X Explorer</h1>
+      <button
+        onClick={showHome}
+        title="Model overview"
+        className="no-drag flex items-center gap-2 rounded px-1 py-1 hover:bg-i3x-bg transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+      >
+        <img src={iconPng} alt="" className="w-5 h-5" />
+        <h1 className="hidden md:block text-sm font-semibold text-i3x-text whitespace-nowrap">i3X Explorer</h1>
+      </button>
 
       <button
         onClick={toggleSidebar}
@@ -172,10 +179,49 @@ export function Toolbar() {
         </svg>
       </button>
 
-      <div className="flex-1 flex items-center gap-2">
+      <button
+        onClick={showHome}
+        title="Home"
+        aria-label="Home"
+        className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 10.5 12 3l9 7.5" />
+          <path d="M5 9.5V21h14V9.5" />
+        </svg>
+      </button>
+
+      <button
+        onClick={goBack}
+        disabled={!canGoBack}
+        title="Back"
+        aria-label="Back"
+        className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-i3x-text-muted"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12" />
+          <polyline points="12 19 5 12 12 5" />
+        </svg>
+      </button>
+
+      <button
+        onClick={goForward}
+        disabled={!canGoForward}
+        title="Forward"
+        aria-label="Forward"
+        className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-i3x-text-muted"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" />
+          <polyline points="12 5 19 12 12 19" />
+        </svg>
+      </button>
+
+      <div className="flex-1 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setShowConnectionDialog(true)}
-          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors truncate max-w-2xl"
+          title={serverUrl || 'Click to configure'}
+          className="px-3 py-1.5 text-xs font-mono bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors motion-reduce:transition-none truncate min-w-0 max-w-[10rem] sm:max-w-sm lg:max-w-2xl"
         >
           {serverUrl || 'Click to configure'}
         </button>
@@ -184,9 +230,9 @@ export function Toolbar() {
           <button
             onClick={handleConnect}
             disabled={isConnecting || !serverUrl}
-            className="px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isConnecting ? 'Connecting...' : 'Connect'}
+            {isConnecting ? <><Spinner size={11} /> Connecting…</> : 'Connect'}
           </button>
         ) : (
           <button
@@ -200,30 +246,103 @@ export function Toolbar() {
           onClick={() => setShowSearch(true)}
           disabled={!isConnected}
           title="Search objects (⌘K)"
-          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+          aria-label="Search objects"
+          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors motion-reduce:transition-none disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 flex-shrink-0"
         >
-          <span>🔍</span>
-          <span>Search</span>
+          <SearchIcon size={13} className="text-i3x-text-muted" />
+          <span className="hidden sm:inline">Search</span>
         </button>
       </div>
 
-      {/* Settings gear + theme toggle */}
-      <div className="flex items-center no-drag">
-        {window.electronAPI && (
+      {/* Snapshot camera + settings gear + theme toggle. Connection status,
+          counts and the Developer button now live in the bottom status bar. */}
+      <div className="flex items-center no-drag flex-shrink-0">
+        <input
+          ref={snapshotFileInput}
+          type="file"
+          accept=".gz,.json,application/gzip,application/json"
+          className="hidden"
+          onChange={handleSnapshotFile}
+        />
+        <div className="relative">
           <button
-            onClick={() => window.electronAPI?.openDevTools()}
-            className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors mr-1"
+            onClick={() => setShowSnapshotMenu(m => !m)}
+            title="Snapshot & diff"
+            aria-label="Snapshot and diff"
+            className="relative w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
           >
-            Developer
+            <CameraIcon size={16} />
+            {/* A baseline is loaded and diffable, worth a quiet marker. */}
+            {hasBaseline && (
+              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-i3x-primary" />
+            )}
           </button>
-        )}
+          {showSnapshotMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowSnapshotMenu(false)} />
+              <div className="absolute right-0 top-9 z-50 bg-i3x-surface border border-i3x-border rounded-lg shadow-xl w-64 py-1">
+                <button
+                  onClick={() => { void captureAndSave(); setShowSnapshotMenu(false) }}
+                  disabled={!isConnected || objectCount === 0 || snapshotBusy === 'saving'}
+                  title="Writes the already-fetched catalog to a file, no new requests. Refresh first if you want it fresher."
+                  className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {snapshotBusy === 'saving'
+                    ? 'Saving snapshot…'
+                    : `Save snapshot (${objectCount.toLocaleString()} objects)`}
+                </button>
+                <button
+                  onClick={() => pickSnapshotFile('baseline')}
+                  className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                >
+                  Load baseline & diff…
+                </button>
+                {hasBaseline && (
+                  <>
+                    <div className="border-t border-i3x-border my-1" />
+                    <button
+                      onClick={() => { openDiffView(); setShowSnapshotMenu(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                    >
+                      View diff
+                    </button>
+                    <button
+                      onClick={() => pickSnapshotFile('comparison')}
+                      className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                    >
+                      Compare against second file…
+                    </button>
+                    {hasComparison && (
+                      <button
+                        onClick={() => { clearComparison(); setShowSnapshotMenu(false) }}
+                        className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                      >
+                        Compare against live catalog
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { clearBaseline(); setShowSnapshotMenu(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                    >
+                      Clear baseline
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <div className="relative">
           <button
             onClick={() => setShowSettingsMenu(m => !m)}
             title="Settings"
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base"
+            aria-label="Settings"
+            className="w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
           >
-            ⚙️
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
           {showSettingsMenu && (
             <>
@@ -238,7 +357,7 @@ export function Toolbar() {
                     }`}
                   >
                     {opt.label}
-                    {pollIntervalMs === opt.ms && <span>✓</span>}
+                    {pollIntervalMs === opt.ms && <CheckIcon size={13} />}
                   </button>
                 ))}
                 <div className="border-t border-i3x-border my-1" />
@@ -249,6 +368,34 @@ export function Toolbar() {
                 >
                   Refresh now
                 </button>
+                <div className="border-t border-i3x-border my-1" />
+                <button
+                  onClick={() => setCatalogCacheEnabled(!catalogCacheEnabled)}
+                  title="Keeps the last catalog per server on this device (names and hierarchy only, never credentials) so reconnecting paints instantly."
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-i3x-bg transition-colors flex items-center justify-between ${
+                    catalogCacheEnabled ? 'text-i3x-primary' : 'text-i3x-text'
+                  }`}
+                >
+                  Cache catalog for fast reconnects
+                  {catalogCacheEnabled && <CheckIcon size={13} />}
+                </button>
+                <button
+                  onClick={() => { void clearCatalogCache(); setShowSettingsMenu(false) }}
+                  className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                >
+                  Clear cached catalogs
+                </button>
+                <div className="border-t border-i3x-border my-1" />
+                <button
+                  onClick={() => setPerfTraceEnabled(!perfTraceEnabled)}
+                  title="Logs every frame that blocks the UI for 50 ms or more to the developer console, with the scripts, computations and React renders behind it. __i3xPerf.report() summarises them."
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-i3x-bg transition-colors flex items-center justify-between ${
+                    perfTraceEnabled ? 'text-i3x-primary' : 'text-i3x-text'
+                  }`}
+                >
+                  Trace render performance
+                  {perfTraceEnabled && <CheckIcon size={13} />}
+                </button>
               </div>
             </>
           )}
@@ -256,42 +403,34 @@ export function Toolbar() {
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base"
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          className="w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {/* The icon names the theme you'd switch *to*, matching the tooltip. */}
+          {theme === 'dark' ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <line x1="12" y1="1" x2="12" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" />
+              <line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
         </button>
       </div>
 
-      {/* Connection status */}
-      <div className="flex items-center gap-2">
-        <div
-          className={`w-2 h-2 rounded-full ${
-            isConnected
-              ? 'bg-i3x-success'
-              : isConnecting
-              ? 'bg-i3x-warning animate-pulse'
-              : 'bg-i3x-secondary'
-          }`}
-        />
-        <span className="text-xs text-i3x-text-muted">
-          {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
-        </span>
-        {isConnected && apiVersion && (
-          <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${
-            apiVersion === 'v1'
-              ? 'bg-i3x-success/10 text-i3x-success border-i3x-success/20'
-              : 'bg-orange-500/10 text-orange-400 border-orange-500/20'
-          }`}>
-            {apiVersion === 'v1-beta' ? 'v1 Beta' : apiVersion}
-          </span>
-        )}
-        {isConnected && credentials && (
-          <span title="Authenticated connection">🔒</span>
-        )}
-      </div>
-
+      {/* Never hide this: a failed connect has no other visible feedback in the
+          toolbar now that the status readouts live in the bottom bar. */}
       {error && (
-        <span className="text-xs text-i3x-error truncate max-w-xs" title={error}>
+        <span className="text-xs text-i3x-error truncate max-w-[8rem] lg:max-w-xs flex-shrink-0" title={error}>
           {error}
         </span>
       )}
@@ -300,7 +439,7 @@ export function Toolbar() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
             <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
-              <span className="text-i3x-warning text-base">↪️</span>
+              <RedirectIcon size={17} className="text-i3x-warning" />
               <h2 className="text-sm font-semibold text-i3x-text">Server Redirected</h2>
             </div>
             <div className="p-4 space-y-3 text-sm text-i3x-text">
@@ -327,16 +466,16 @@ export function Toolbar() {
 
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
 
-      {showV0Blocked && (
+      {unsupportedServer !== null && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
             <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
-              <span className="text-i3x-error text-base">🚫</span>
+              <BlockedIcon size={17} className="text-i3x-error" />
               <h2 className="text-sm font-semibold text-i3x-text">Unsupported API Version</h2>
             </div>
             <div className="p-4 space-y-3 text-sm text-i3x-text">
-              <p>This server implements the <span className="font-mono font-semibold text-i3x-error">v0</span> Alpha API, which is no longer supported.</p>
-              <p>i3X Explorer requires <strong>v1</strong> or later. Please upgrade your server to the v1 spec before connecting.</p>
+              <p>This server does not implement i3X <strong>1.0</strong> (found: <span className="font-mono font-semibold text-i3x-error">{unsupportedServer}</span>).</p>
+              <p>i3X Explorer supports i3X 1.0 servers only. Please upgrade your server to the 1.0 spec before connecting.</p>
               <p>
                 Find migration details at{' '}
                 <a
@@ -351,7 +490,7 @@ export function Toolbar() {
             </div>
             <div className="px-4 py-3 border-t border-i3x-border flex justify-end">
               <button
-                onClick={() => setShowV0Blocked(false)}
+                onClick={() => setUnsupportedServer(null)}
                 className="px-4 py-1.5 text-sm bg-i3x-primary text-white rounded transition-colors hover:bg-i3x-primary/80"
               >
                 OK

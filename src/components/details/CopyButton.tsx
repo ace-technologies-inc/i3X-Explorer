@@ -9,7 +9,7 @@ interface CopyButtonProps {
 }
 
 /**
- * Small floating clipboard icon. Drops into any `relative` container — the
+ * Small floating clipboard icon. Drops into any `relative` container, the
  * default positioning pins it to the top-right corner of the pane. Briefly
  * flips to a checkmark on success.
  */
@@ -17,14 +17,14 @@ export function CopyButton({ text, className = '', title = 'Copy to clipboard' }
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (e: React.MouseEvent) => {
-    // Containers like the collapsed JsonViewer use onClick to expand — don't trigger that.
+    // Containers like the collapsed JsonViewer use onClick to expand, don't trigger that.
     e.stopPropagation()
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {
-      // Clipboard API unavailable (insecure context / denied permission) — fail quietly.
+      // Clipboard API unavailable (insecure context / denied permission), fail quietly.
     }
   }
 

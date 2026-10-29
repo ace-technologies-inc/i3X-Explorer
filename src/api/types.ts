@@ -2,19 +2,23 @@
 export interface Namespace {
   uri: string
   displayName: string
+  isExtended?: boolean
+  metadata?: Record<string, unknown>
 }
 
 // RFC 4.1.2/4.1.3 - Object Type
 export interface ObjectType {
   elementId: string
   displayName: string
+  description?: string
   namespaceUri: string
   schema: Record<string, unknown>
-  // v1 additions
+  // 1.0 fields
   sourceTypeId?: string
   version?: string | null
   related?: { relationshipType: string; types?: string[] } | null
-  // v1-beta: extendedAttributes; v1.0: renamed to schemaExtensions. Client normalizes to schemaExtensions.
+  isExtended?: boolean
+  metadata?: Record<string, unknown>
   schemaExtensions?: Record<string, unknown>
 }
 
@@ -22,10 +26,13 @@ export interface ObjectType {
 export interface RelationshipType {
   elementId: string
   displayName: string
+  description?: string
   namespaceUri: string
   reverseOf: string
-  // v1 addition
+  // 1.0 field
   relationshipId?: string
+  isExtended?: boolean
+  metadata?: Record<string, unknown>
 }
 
 // RFC 3.1.1 - Object Instance (Minimal)
@@ -36,24 +43,32 @@ export interface ObjectInstanceMinimal {
   parentId: string | null
   isComposition: boolean
   namespaceUri: string
-  // v1 additions
+  // 1.0 fields
   isExtended?: boolean
   description?: string
+  // metadata.sourceTypeId, lifted so the light catalog skeleton can carry it
+  sourceTypeId?: string
 }
 
 // RFC 3.1.1 + 3.1.2 - Object Instance (Full)
 export interface ObjectInstance extends ObjectInstanceMinimal {
   relationships?: Record<string, unknown>
-  // Populated when the object is returned via POST /objects/related (v1 envelope field)
+  // Populated when the object is returned via POST /objects/related (envelope field)
   sourceRelationship?: string
-  // v1: full metadata object passthrough (sourceTypeId, system, etc.)
+  // Full metadata object passthrough (sourceTypeId, system, etc.)
   metadata?: Record<string, unknown>
-  // v1-beta: extendedAttributes; v1.0: renamed to schemaExtensions. Client normalizes to schemaExtensions.
   schemaExtensions?: Record<string, unknown>
 }
 
-// Server capabilities matrix from GET /info (1.0 Release spec).
-// All fields optional defensively — only consumed when a true v1 server is detected.
+// Vendor extension POST /objects/related-by-type: one source element and the
+// objects it reaches through the requested relationship type.
+export interface RelatedByTypeEntry {
+  sourceId: string
+  related: ObjectInstance[]
+}
+
+// Server capabilities matrix from GET /info (mandatory in 1.0 ServerInfo).
+// All fields optional defensively.
 export interface ServerCapabilities {
   query?: { history?: boolean }
   update?: { current?: boolean; history?: boolean }
@@ -65,7 +80,7 @@ export interface LastKnownValue {
   elementId: string
   value: Record<string, unknown>
   parentId: string | null
-  // isComposition was removed from v1 value responses (spec commit 32be7d7);
+  // isComposition was removed from value responses (spec commit 32be7d7);
   // clients should infer composition from presence of the `components` field instead.
   isComposition?: boolean
   namespaceUri: string
@@ -73,7 +88,7 @@ export interface LastKnownValue {
   timestamp?: string
   quality?: string
   components?: Record<string, { value: unknown; quality?: string; timestamp?: string }>
-  // 1.0: set when the server returned HTTP 206 (server-imposed limit truncated
+  // Set when the server returned HTTP 206 (server-imposed limit truncated
   // the composition tree); carries responseDetail.detail explaining the limit
   partialDetail?: string
   // Untouched HTTP response body for this value request (full envelope), retained
