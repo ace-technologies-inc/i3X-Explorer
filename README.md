@@ -1,5 +1,7 @@
 # i3X Explorer
 
+**Re-written and updated for vNext development!**
+
 The official cross-platform desktop application for browsing and monitoring [I3X](https://www.i3x.dev) (Industrial Information Interface eXchange) API servers. Similar to [MQTT Explorer](https://mqtt-explorer.com/) but for the [I3X protocol](https://www.github.com/cesmii/i3x).
 
 ![i3X Explorer](website/icon-64.png)
@@ -7,7 +9,7 @@ The official cross-platform desktop application for browsing and monitoring [I3X
 ## Features
 
 - Connect to any i3X 1.0 server (servers implementing an earlier spec are refused with a message saying what they reported)
-- Three browse views in one tree:
+- Three browse views:
   - **Namespaces** → Object Types → Object Instances
   - **Objects** (flat list of every instance the server exposes)
   - **Hierarchy** (parent/child structure, with one root per upstream server when fronting a wrapper)
@@ -24,6 +26,22 @@ The official cross-platform desktop application for browsing and monitoring [I3X
 - Global object search modal (⌘K / Ctrl+K) that navigates and expands to any match by name or elementId
 - Tree auto-refresh: expanding a branch re-fetches from the server; 30s background poll keeps expanded branches current
 - Light and dark theme with toggle button (follows OS preference by default)
+
+### New Features in 1.1.0
+- Insights: reports for anomalies, naming conventions, data quality, deviations and splits, plus a type atlas and a model overview with summary cards.
+- Relationship graphs: radial and tree layouts built around the selected element, with an adjustable depth. They have a legend and search, and the export to PNG. This replaces the old single graph bullet.
+- Snapshot diff: save the catalog and compare snapshots, including changes to metadata. Snapshots from earlier versions still load.
+- Request inspector and code samples: see the exact request and response for what you're viewing, and generate curl, fetch, Python, Go, C# and HTTP snippets.
+- History tab: presets from 15 seconds to 30 days, plus a custom range.
+- Subscriptions: sparklines, a live badge, value-change history, a composed-value view, and stream recovery.
+- Large models: parsing runs in a Web Worker, the catalog is cached per server with revalidation (a cached catalog loads while the refresh runs), and the lists are virtualized.
+- Sidebar and search: collapsible tree panel and a ⌘K/Ctrl+K object search (the sidebar bullet is already in the README).
+
+## Compatibility
+
+- Starting with 1.1.0-0 i3X Explorer no longer supports the Beta specification. Download an older Release if you need to use a Beta endpoint.
+- A 401 or 403 is reported as an authentication problem. Auth options are None, Basic, Bearer and Custom Header.
+- Handles 206 partial results, the server capabilities matrix, and http→https redirects.
 
 ## Installation
 
@@ -238,6 +256,12 @@ Both scripts write to `build/` and are called automatically by the respective bu
 - [I3X Information](https://i3x.dev)
 - [I3X API Documentation](https://i3x.dev/sdk)
 - [CESMII - The Smart Manufacturing Institute](https://www.cesmii.org/)
+
+## Credits
+
+Version 1.0, and its subsequent releases, were significantly contributed by CESMII - The Smart Manfacturing institute, under an MIT license.
+
+Version 1.1.0, and its subsequent releases, were significantly contributed by Toyota Motors North America and are licensed under the MIT license for inclusion in i3X Explorer, using exactly the text as provided in the existing [LICENSE](LICENSE) file starting from "Permission is hereby granted..."
 
 ## License
 
