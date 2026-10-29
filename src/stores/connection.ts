@@ -1,6 +1,10 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 
+// The compiled-in default server URL. A persisted serverUrl different from this
+// can only have come from an explicit user choice (see the v1 migration below).
+const DEFAULT_SERVER_URL = 'https://api.i3x.dev/v1'
+
 // Custom storage that encrypts savedCredentials via Electron's safeStorage
 const encryptedStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
@@ -66,6 +70,9 @@ export type Credentials = BasicCredentials | BearerCredentials | CustomHeaderCre
 
 interface ConnectionState {
   serverUrl: string
+  // True once the user explicitly picked a server in the connection dialog, so
+  // a ?server= deep link must not override their choice.
+  serverUrlUserSet: boolean
   credentials: Credentials | null
   savedCredentials: Record<string, Credentials>
   isConnected: boolean
@@ -74,8 +81,15 @@ interface ConnectionState {
   showConnectionDialog: boolean
   recentUrls: string[]
   ignoreCertErrors: boolean
+  // Connect-flow modals (not persisted). They live here rather than in Toolbar
+  // state so the connect flow itself (services/connection.ts) can raise them
+  // from any call site, Toolbar's Connect button or the dialog's reconnect.
+  redirectNotice: { from: string; to: string } | null
+  // What a server that is not an i3X 1.0 release identified as (see UnsupportedServerError.found)
+  unsupportedServer: string | null
 
   setServerUrl: (url: string) => void
+  setServerUrlUserSet: (value: boolean) => void
   setCredentials: (credentials: Credentials | null) => void
   saveCredentialsForUrl: (url: string, credentials: Credentials | null) => void
   getCredentialsForUrl: (url: string) => Credentials | null
@@ -85,23 +99,34 @@ interface ConnectionState {
   setShowConnectionDialog: (show: boolean) => void
   addRecentUrl: (url: string) => void
   setIgnoreCertErrors: (ignore: boolean) => void
+  setRedirectNotice: (notice: { from: string; to: string } | null) => void
+  setUnsupportedServer: (found: string | null) => void
   disconnect: () => void
 }
+
+type PersistedConnectionState = Pick<
+  ConnectionState,
+  'serverUrl' | 'serverUrlUserSet' | 'recentUrls' | 'savedCredentials' | 'ignoreCertErrors'
+>
 
 export const useConnectionStore = create<ConnectionState>()(
   persist(
     (set, get) => ({
-      serverUrl: 'https://api.i3x.dev/v1',
+      serverUrl: DEFAULT_SERVER_URL,
+      serverUrlUserSet: false,
       credentials: null,
       savedCredentials: {},
       isConnected: false,
       isConnecting: false,
       error: null,
       showConnectionDialog: false,
-      recentUrls: ['https://api.i3x.dev/v1', 'http://localhost:8080'],
+      recentUrls: [DEFAULT_SERVER_URL, 'http://localhost:8080'],
       ignoreCertErrors: false,
+      redirectNotice: null,
+      unsupportedServer: null,
 
       setServerUrl: (url) => set({ serverUrl: url }),
+      setServerUrlUserSet: (value) => set({ serverUrlUserSet: value }),
       setCredentials: (credentials) => set({ credentials }),
 
       saveCredentialsForUrl: (url, credentials) => {
@@ -124,6 +149,8 @@ export const useConnectionStore = create<ConnectionState>()(
       setError: (error) => set({ error, isConnecting: false }),
       setShowConnectionDialog: (show) => set({ showConnectionDialog: show }),
       setIgnoreCertErrors: (ignore) => set({ ignoreCertErrors: ignore }),
+      setRedirectNotice: (redirectNotice) => set({ redirectNotice }),
+      setUnsupportedServer: (unsupportedServer) => set({ unsupportedServer }),
 
       addRecentUrl: (url) => {
         const { recentUrls } = get()
@@ -142,8 +169,22 @@ export const useConnectionStore = create<ConnectionState>()(
     {
       name: 'i3x-connection',
       storage: createJSONStorage(() => encryptedStorage),
+      version: 1,
+      // v0 -> v1 added serverUrlUserSet. A persisted serverUrl that isn't the
+      // compiled default predates the flag and can only have come from an
+      // explicit user choice, so preserve it as user-set; otherwise a ?server=
+      // deep link would clobber it on the first run of this version.
+      migrate: (persisted, from): PersistedConnectionState => {
+        const state = { ...(persisted as Partial<PersistedConnectionState>) }
+        if (from < 1) {
+          state.serverUrlUserSet =
+            state.serverUrl !== undefined && state.serverUrl !== DEFAULT_SERVER_URL
+        }
+        return state as PersistedConnectionState
+      },
       partialize: (state) => ({
         serverUrl: state.serverUrl,
+        serverUrlUserSet: state.serverUrlUserSet,
         recentUrls: state.recentUrls,
         savedCredentials: state.savedCredentials,
         ignoreCertErrors: state.ignoreCertErrors

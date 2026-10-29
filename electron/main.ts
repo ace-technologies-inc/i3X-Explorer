@@ -127,7 +127,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Hide the native menu bar on Windows/Linux — the app toolbar covers all user actions.
+  // Hide the native menu bar on Windows/Linux, the app toolbar covers all user actions.
   // On macOS the system menu bar is kept (provides About, Edit shortcuts, etc.)
   if (process.platform !== 'darwin') {
     Menu.setApplicationMenu(null)

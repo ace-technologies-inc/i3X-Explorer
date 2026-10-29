@@ -6,9 +6,8 @@ import { readFileSync } from 'fs'
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
 export default defineConfig({
-  // Relative base so index.html references assets as ./assets/...
-  // This makes the build deployable to any path (root or subdirectory).
-  base: './',
+  // Always deployed behind /explorer.
+  base: '/explorer/',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version)
   },
