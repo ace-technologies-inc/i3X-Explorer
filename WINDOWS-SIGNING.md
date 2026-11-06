@@ -1,9 +1,17 @@
 # Windows Code Signing Setup Guide
 
 This guide explains how to sign the Windows installer for i3X Explorer using
-**Azure Trusted Signing** (formerly Azure Code Signing). Signed builds eliminate
-the "Windows protected your PC" SmartScreen warning that appears for unsigned
-executables from unknown publishers.
+**Azure Trusted Signing** (formerly Azure Code Signing).
+
+What signing gets you:
+
+- **Windows 11 Smart App Control** blocks unsigned executables outright, with no
+  "Run anyway". It checks every exe at launch, so the app inside the installer
+  must be signed, not just the installer. Validly signed builds get past it.
+- **SmartScreen** ("Windows protected your PC") is reputation-based. Signing
+  names the publisher, but it does **not** suppress the warning by itself:
+  reputation builds per signing identity and per file as people download and
+  run releases. Expect new releases to warn for a while until that happens.
 
 ---
 
@@ -11,10 +19,20 @@ executables from unknown publishers.
 
 The build script (`scripts/build-sign-win.ps1`) runs on a Windows machine and:
 
-1. Builds the Electron app with `electron-builder`
-2. Downloads the Azure Trusted Signing dlib from NuGet (cached after first run)
-3. Calls `signtool.exe` with the dlib to send the file hash to Azure, receive
-   the signature, and embed it into each `.exe`
+1. Builds the Electron app with `electron-builder`, passing `win.azureSignOptions`
+   on the command line. electron-builder installs Microsoft's `TrustedSigning`
+   PowerShell module on first use and signs **while packaging**: the app exe
+   before it goes into the installers, the uninstaller, then the NSIS installer
+   and the portable exe
+2. Verifies that every installer and the unpacked `i3X Explorer.exe` carry a
+   valid, timestamped signature, and fails if any doesn't
+
+Signing *after* electron-builder finishes (what this script used to do) leaves
+the installed app exe unsigned, because it is already compressed inside the
+installer. Don't go back to that.
+
+The tag-triggered GitHub workflow (`.github/workflows/build-win.yml`) does the
+same thing with the same credentials stored as repository secrets.
 
 Authentication is handled via a service principal (app registration) in Entra ID.
 Your private key never leaves Azure, only the file hash is transmitted.
@@ -23,15 +41,12 @@ Your private key never leaves Azure, only the file hash is transmitted.
 
 ## Prerequisites
 
-### 1. Windows SDK (for `signtool.exe`)
+### 1. PowerShell Gallery access
 
-The script searches for `signtool.exe` automatically. If it's not found, install
-either:
-
-- **Windows 10/11 SDK**: https://developer.microsoft.com/windows/downloads/windows-sdk/
-  - During install, check **"Windows SDK Signing Tools for Desktop Apps"**
-- **Visual Studio Build Tools**: https://visualstudio.microsoft.com/downloads/
-  - Include the **"MSVC build tools"** workload
+electron-builder installs the `TrustedSigning` module from the PowerShell
+Gallery (scope CurrentUser) the first time it signs, so the machine needs
+internet access to `powershellgallery.com`. No Windows SDK or `signtool.exe`
+install is needed.
 
 ### 2. Node.js 20+
 
@@ -203,8 +218,8 @@ npm install
 .\scripts\build-sign-win.ps1
 ```
 
-On the first run the script will download the Azure Trusted Signing dlib from
-NuGet and cache it in `scripts\.azure-signing\`. Subsequent runs use the cache.
+On the first run electron-builder installs the `TrustedSigning` PowerShell
+module. Subsequent runs reuse it.
 
 Signed `.exe` files are written to `release\<version>\`.
 
@@ -238,11 +253,11 @@ Status SignerCertificate
 |---------|-------------|
 | `AADSTS7000215: Invalid client secret` | Secret expired or wrong value copied, rotate in Entra portal |
 | `AuthorizationFailed` | App registration not assigned the *Trusted Signing Certificate Profile Signer* role, see Step 4 |
-| `signtool.exe` not found | Windows SDK not installed, see Prerequisites |
-| Signature shows as valid but SmartScreen still warns | Normal for brand-new accounts; reputation builds over ~days/weeks of signed releases being distributed |
-| `The parameter is incorrect` from signtool | dlib version mismatch, delete `scripts\.azure-signing\` and let the script re-download |
+| `Install-Module` / `Invoke-TrustedSigning` not found | No access to the PowerShell Gallery, or the execution policy blocks modules, see Prerequisites §1 and §5 |
+| `configuration.win.azureSignOptions should be one of these: null` | A required option is missing; all four (`publisherName`, `endpoint`, `codeSigningAccountName`, `certificateProfileName`) must be passed, usually an `AZURE_*` variable is empty |
+| Installer is signed but Windows 11 blocks the installed app | The app exe was not signed before packaging, check the verify step's line for `win-unpacked\i3X Explorer.exe` |
+| Signature shows as valid but SmartScreen still warns | Expected for a young signing identity or a new release; reputation builds as signed releases are downloaded and run. Submitting the release at Microsoft's file submission portal can help |
 | `Cannot create symbolic link: A required privilege is not held` | Developer Mode is not enabled and script is not running as Administrator, see Prerequisites §4 |
-| `'0xEF' is an invalid start of a value` from signtool | `metadata.json` was written with a UTF-8 BOM, ensure you are running the latest version of the build script |
 | `magick: command not found` / icon not generated | ImageMagick not installed or not on PATH, see Prerequisites §3; open a new shell after installing |
 
 ---

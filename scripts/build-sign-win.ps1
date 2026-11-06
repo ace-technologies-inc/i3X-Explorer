@@ -11,6 +11,14 @@
 #   AZURE_TRUSTED_SIGNING_ENDPOINT     – e.g. https://eus.codesigning.azure.net
 #   AZURE_TRUSTED_SIGNING_ACCOUNT      – Signing account name
 #   AZURE_TRUSTED_SIGNING_PROFILE      – Certificate profile name
+#
+# Signing happens INSIDE electron-builder (win.azureSignOptions, passed below as
+# --config.* overrides), so the app exe is signed before it is packed into the NSIS
+# installer and portable exe, and the uninstaller is signed too. Signing the finished
+# installers afterwards (what this script used to do) leaves the installed
+# "i3X Explorer.exe" unsigned, which Windows 11 Smart App Control blocks outright.
+# electron-builder installs the TrustedSigning PowerShell module on first use and
+# authenticates with the AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET vars.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -40,7 +48,6 @@ if (-not $isAdmin -and -not $devModeOn) {
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
-$DlibDir    = Join-Path $ScriptDir '.azure-signing'    # cached, not committed
 
 Set-Location $ProjectDir
 
@@ -95,85 +102,6 @@ try {
     Abort "npm not found. It should come with Node.js, reinstall Node from https://nodejs.org."
 }
 
-# ── Check: signtool.exe ───────────────────────────────────────────────────────
-
-$signtool = $null
-
-# Search Windows SDK locations (newest first)
-$sdkBinRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
-if (Test-Path $sdkBinRoot) {
-    $signtool = Get-ChildItem "$sdkBinRoot\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
-                Sort-Object FullName -Descending |
-                Select-Object -First 1 -ExpandProperty FullName
-}
-
-# Also check VS build tools path
-if (-not $signtool) {
-    $vsPaths = @(
-        'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build'
-        'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build'
-        'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build'
-        'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build'
-    )
-    foreach ($p in $vsPaths) {
-        $candidate = Join-Path $p 'signtool.exe'
-        if (Test-Path $candidate) { $signtool = $candidate; break }
-    }
-}
-
-if (-not $signtool) {
-    Write-Fail "signtool.exe not found."
-    Write-Host ""
-    Write-Host "  Install either:" -ForegroundColor Yellow
-    Write-Host "    A) Windows 10/11 SDK  →  https://developer.microsoft.com/windows/downloads/windows-sdk/"
-    Write-Host "       (check 'Windows SDK Signing Tools for Desktop Apps' during install)"
-    Write-Host "    B) Visual Studio Build Tools  →  https://visualstudio.microsoft.com/downloads/"
-    Write-Host "       (include the 'MSVC build tools' workload)"
-    Write-Host ""
-    exit 1
-}
-
-Write-Ok "signtool.exe: $signtool"
-
-# ── Check/Download: Azure Trusted Signing dlib ────────────────────────────────
-
-$DlibPackage   = 'Microsoft.Trusted.Signing.Client'
-$DlibVersion   = '1.0.95'                       # update when new versions ship
-$DlibDll       = Join-Path $DlibDir 'bin\x64\Azure.CodeSigning.Dlib.dll'
-$DlibCacheFile = Join-Path $DlibDir '.version'  # tracks which version is cached
-
-# Wipe cache if it contains a different version
-$cachedVersion = if (Test-Path $DlibCacheFile) { (Get-Content $DlibCacheFile -Raw).Trim() } else { $null }
-if ($cachedVersion -ne $DlibVersion) {
-    if ($cachedVersion) {
-        Write-Warn "Cached dlib v$cachedVersion is outdated (need v$DlibVersion), clearing cache..."
-    }
-    if (Test-Path $DlibDir) { Remove-Item -Recurse -Force $DlibDir }
-}
-
-if (-not (Test-Path $DlibDll)) {
-    Write-Warn "Azure Trusted Signing dlib not cached, downloading v$DlibVersion from NuGet..."
-
-    New-Item -ItemType Directory -Force -Path $DlibDir | Out-Null
-    $nupkgUrl  = "https://api.nuget.org/v3-flatcontainer/$($DlibPackage.ToLower())/$DlibVersion/$($DlibPackage.ToLower()).$DlibVersion.nupkg"
-    $nupkgPath = Join-Path $DlibDir 'dlib.nupkg.zip'
-
-    try {
-        Invoke-WebRequest -Uri $nupkgUrl -OutFile $nupkgPath -UseBasicParsing
-        Expand-Archive -Path $nupkgPath -DestinationPath $DlibDir -Force
-        Remove-Item $nupkgPath
-        Set-Content -Path $DlibCacheFile -Value $DlibVersion -NoNewline
-    } catch {
-        Abort "Failed to download dlib from NuGet: $_`nCheck your internet connection or download manually from:`n  https://www.nuget.org/packages/$DlibPackage"
-    }
-}
-
-if (-not (Test-Path $DlibDll)) {
-    Abort "dlib DLL not found at expected path after extraction: $DlibDll`nThe NuGet package layout may have changed, inspect $DlibDir manually."
-}
-
-Write-Ok "Azure Trusted Signing dlib: v$DlibVersion"
-
 # ── Check: Azure credentials ──────────────────────────────────────────────────
 
 $missingVars = @()
@@ -218,75 +146,48 @@ if ($LASTEXITCODE -ne 0) { Abort "Vite build failed." }
 
 Copy-Item electron\preload.cjs dist-electron\preload.cjs
 
-$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'    # suppress electron-builder cert search
-npx electron-builder --win --publish never
-if ($LASTEXITCODE -ne 0) { Abort "electron-builder failed." }
+$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'    # no local cert search; Azure signs instead
+# publisherName is required by electron-builder's schema but only used to verify
+# auto-updates (this app publishes none); keep it equal to the certificate's CN.
+npx electron-builder --win --publish never `
+    "--config.win.azureSignOptions.publisherName=Ace Technologies, Inc" `
+    "--config.win.azureSignOptions.endpoint=$($env:AZURE_TRUSTED_SIGNING_ENDPOINT)" `
+    "--config.win.azureSignOptions.codeSigningAccountName=$($env:AZURE_TRUSTED_SIGNING_ACCOUNT)" `
+    "--config.win.azureSignOptions.certificateProfileName=$($env:AZURE_TRUSTED_SIGNING_PROFILE)"
+if ($LASTEXITCODE -ne 0) { Abort "electron-builder failed (building or signing)." }
 
 # electron-builder's portable target spawns a child process (7-zip sfx) that may still be
 # writing the file when the main process exits. Give it a moment to finish.
 Start-Sleep -Seconds 3
 
-# ── Sign ──────────────────────────────────────────────────────────────────────
-
-Write-Header "Signing Windows artifacts"
-
-# Write metadata.json that signtool/dlib reads
-$MetadataFile = Join-Path $DlibDir 'metadata.json'
-@{
-    Endpoint                 = $env:AZURE_TRUSTED_SIGNING_ENDPOINT
-    CodeSigningAccountName   = $env:AZURE_TRUSTED_SIGNING_ACCOUNT
-    CertificateProfileName   = $env:AZURE_TRUSTED_SIGNING_PROFILE
-} | ConvertTo-Json | ForEach-Object { [System.IO.File]::WriteAllText($MetadataFile, $_, (New-Object System.Text.UTF8Encoding $false)) }
-
-$ReleaseDir = Join-Path $ProjectDir "release\$version"
-$exeFiles   = Get-ChildItem -Path $ReleaseDir -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue
-
-if ($exeFiles.Count -eq 0) {
-    Abort "No .exe files found in $ReleaseDir, did the build succeed?"
-}
-
-$allSigned = $true
-foreach ($exe in $exeFiles) {
-    Write-Host "  Signing $($exe.Name) ..." -ForegroundColor DarkGray
-    & $signtool sign `
-        /fd   SHA256 `
-        /tr   http://timestamp.acs.microsoft.com `
-        /td   SHA256 `
-        /dlib $DlibDll `
-        /dmdf $MetadataFile `
-        $exe.FullName
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "Signing failed for $($exe.Name)"
-        $allSigned = $false
-    } else {
-        Write-Ok $exe.Name
-    }
-}
-
-# Clean up metadata.json (contains account names; dlib dir is git-ignored anyway)
-Remove-Item $MetadataFile -ErrorAction SilentlyContinue
-
-if (-not $allSigned) {
-    Abort "One or more files failed to sign."
-}
-
 # ── Verify ────────────────────────────────────────────────────────────────────
+# Checks the shipped installers AND the app exe in each *-unpacked folder. The unpacked
+# exe is the same file that was packed into the installers, so if it is signed, so is
+# what users end up running.
 
 Write-Header "Verifying signatures"
 
+$ReleaseDir = Join-Path $ProjectDir "release\$version"
+$exeFiles   = @(Get-ChildItem -Path $ReleaseDir -Filter '*.exe' -ErrorAction SilentlyContinue)
+$appExes    = @(Get-ChildItem -Path $ReleaseDir -Filter 'i3X Explorer.exe' -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.DirectoryName -like '*-unpacked' })
+
+if ($exeFiles.Count -eq 0) { Abort "No installer .exe files found in $ReleaseDir, did the build succeed?" }
+if ($appExes.Count -eq 0)  { Abort "No unpacked 'i3X Explorer.exe' found under $ReleaseDir, cannot verify the app itself was signed." }
+
 $allVerified = $true
-foreach ($exe in $exeFiles) {
-    $result = & $signtool verify /pa /v $exe.FullName 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "Verification FAILED for $($exe.Name)"
-        $result | Where-Object { $_ -match '(Error|error|Subject|Issued|Timestamp|not valid)' } |
-            ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+foreach ($exe in $exeFiles + $appExes) {
+    $label = $exe.FullName.Substring($ReleaseDir.Length + 1)
+    $sig   = Get-AuthenticodeSignature -FilePath $exe.FullName
+    if ($sig.Status -ne 'Valid') {
+        Write-Fail "$label  ·  $($sig.Status): $($sig.StatusMessage)"
+        $allVerified = $false
+    } elseif (-not $sig.TimeStamperCertificate) {
+        # Trusted Signing certs live ~3 days; without a timestamp the signature expires with them.
+        Write-Fail "$label  ·  signed but NOT timestamped"
         $allVerified = $false
     } else {
-        # Extract the subject line for a concise confirmation
-        $subject = $result | Where-Object { $_ -match '^\s*Subject:' } | Select-Object -First 1
-        Write-Ok "$($exe.Name)$(if ($subject) { '  ·  ' + $subject.Trim() })"
+        Write-Ok "$label  ·  $($sig.SignerCertificate.Subject)"
     }
 }
 
@@ -300,7 +201,7 @@ Write-Header "Done"
 Write-Host "  Signed artifacts in:" -ForegroundColor Green
 Write-Host "    $ReleaseDir" -ForegroundColor White
 Write-Host ""
-Get-ChildItem $ReleaseDir -Filter '*.exe' | ForEach-Object {
+$exeFiles | ForEach-Object {
     $size = '{0:N1} MB' -f ($_.Length / 1MB)
     Write-Host "    $($_.Name)  ($size)" -ForegroundColor White
 }

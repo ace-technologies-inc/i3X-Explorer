@@ -117,16 +117,19 @@ Also requires a **Developer ID Application** certificate (not "Mac Installer Dis
 
 ### Windows Signing
 
-Windows signing uses **Azure Trusted Signing** (Microsoft-managed CA, ~$10/month). It fully suppresses the SmartScreen "Unknown publisher" warning. Signing must be done on a Windows machine, `signtool.exe` (a Windows-only binary) does the Authenticode embedding; there is no viable cross-platform path for this step.
+Windows signing uses **Azure Trusted Signing** (Microsoft-managed CA, ~$10/month). Signing must run on Windows (electron-builder calls the `TrustedSigning` PowerShell module); there is no viable cross-platform path for this step.
+
+**What signing does and doesn't buy:**
+- **Smart App Control (Windows 11)** blocks unsigned executables outright, no "Run anyway". It checks every exe at launch, not just the download, so *every* exe we ship must be signed, including the app inside the installer. A valid signature from a trusted CA is what gets it past.
+- **SmartScreen (Windows 10 and 11)** is reputation-based. A signature does **not** suppress the "Windows protected your PC" warning on its own: reputation accrues to the signing identity and to each file as people download and run it, so a new release from a young identity can still warn for a while. EV certificates stopped granting instant reputation in 2024, so no certificate (EV, Trusted Signing or a third-party service) is a shortcut. Submitting a release at the Microsoft file submission portal can speed it up.
+
+**Sign during packaging, never after.** Signing is configured as `win.azureSignOptions`, passed as `--config.win.azureSignOptions.*` CLI overrides (endpoint/account/profile come from the `AZURE_*` env vars), so electron-builder signs `i3X Explorer.exe` **before** packing it into the NSIS installer and portable exe, and signs the uninstaller too. The previous pipeline ran an unsigned electron-builder and then signed the finished `.exe`s: the installers came out signed, but the app they installed did not, and Smart App Control blocked it on Windows 11. The overrides are deliberately not in `electron-builder.json`: `npm run build:win` on a Mac then builds unsigned rather than failing to reach PowerShell. `publisherName` is required by the schema but only used for auto-update verification, which this app doesn't do.
 
 **To sign a Windows build**, run on a Windows box:
 ```powershell
 .\scripts\build-sign-win.ps1
 ```
-
-The script builds the installer, auto-downloads the Azure Trusted Signing dlib from NuGet on first run (cached in `scripts\.azure-signing\`, git-ignored), then signs and verifies all `.exe` files.
-
-The dlib version is pinned in `$DlibVersion` near the top of the script. Microsoft releases updates periodically, if SmartScreen warnings reappear on a previously-clean build, bump this value to the latest on [NuGet](https://www.nuget.org/packages/Microsoft.Trusted.Signing.Client). The script automatically detects a version mismatch, wipes the cache, and re-downloads.
+or push a `v*` tag, and `.github/workflows/build-win.yml` does the same on a GitHub runner. Both finish with a verification pass (`Get-AuthenticodeSignature`) over the installers **and** the app exe in each `*-unpacked` folder (the same file that was packed into the installers), and fail if any is unsigned or untimestamped. Trusted Signing certificates live about 3 days, so a signature without a timestamp would expire with its cert.
 
 Credentials go in `scripts\set-azure-vars.ps1` (git-ignored; template at `scripts\set-azure-vars.example.ps1`):
 ```powershell
