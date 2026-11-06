@@ -214,9 +214,11 @@ This file is listed in `.gitignore` and will not be committed.
 From the project root in PowerShell:
 
 ```powershell
-npm install
 .\scripts\build-sign-win.ps1
 ```
+
+The script runs `npm ci` first, so it always builds against exactly what
+`package-lock.json` pins (close any running instance of the app first).
 
 On the first run electron-builder installs the `TrustedSigning` PowerShell
 module. Subsequent runs reuse it.

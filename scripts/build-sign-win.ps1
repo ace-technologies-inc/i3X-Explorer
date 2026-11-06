@@ -139,6 +139,13 @@ Write-Header "Building i3X Explorer v$version (Windows)"
 & (Join-Path $ScriptDir 'generate-icons.ps1')
 if ($LASTEXITCODE -ne 0) { Abort "Icon generation failed." }
 
+# Install exactly what package-lock.json pins, as CI does. A checkout pulled after a
+# dependency was added otherwise builds against a stale node_modules and fails in
+# vite with "failed to resolve import". (npm ci replaces node_modules, so close any
+# running dev instance of the app first, or Windows file locks will make it fail.)
+npm ci
+if ($LASTEXITCODE -ne 0) { Abort "npm ci failed (close any running instance of the app and retry)." }
+
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist, dist-electron
 
 npx vite build
