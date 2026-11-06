@@ -12,6 +12,7 @@ import { SubscriptionTransportProvider } from './components/subscriptions/Subscr
 import { SubscriptionsDrawer } from './components/subscriptions/SubscriptionsDrawer'
 import { ConnectionDialog } from './components/connection/ConnectionDialog'
 import { UpdateChecker } from './components/updater/UpdateChecker'
+import { TooltipLayer } from './components/common/TooltipLayer'
 import { PerfProfiler } from './diagnostics/PerfProfiler'
 
 function App() {
@@ -44,6 +45,7 @@ function App() {
         navigating away from an element) never tears down a live stream. */}
     <SubscriptionTransportProvider>
       <div className="h-full flex flex-col bg-i3x-bg">
+        <TooltipLayer />
         <PerfProfiler id="Toolbar">
           <Toolbar />
         </PerfProfiler>

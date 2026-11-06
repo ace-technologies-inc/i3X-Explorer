@@ -332,6 +332,14 @@ export const CameraIcon = (p: IconProps) => (
   </Icon>
 )
 
+/** Open another window: a window frame with a plus. */
+export const NewWindowIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 9h18M12 12.5v4M10 14.5h4" />
+  </Icon>
+)
+
 /** Truncated child list: horizontal ellipsis. */
 export const EllipsisIcon = (p: IconProps) => (
   <Icon {...p}>

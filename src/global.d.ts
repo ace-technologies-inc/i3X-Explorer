@@ -25,5 +25,6 @@ interface Window {
       endSession: boolean
     ) => Promise<import('./auth/oauthSession').SignOutResult>
     oauthCancel?: () => Promise<void>
+    openNewWindow: () => void
   }
 }

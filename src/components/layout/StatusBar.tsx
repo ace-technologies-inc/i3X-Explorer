@@ -101,7 +101,7 @@ export function StatusBar() {
         <button
           type="button"
           onClick={() => window.electronAPI?.openDevTools()}
-          title="Developer tools"
+          title="Open the developer tools (console and network inspector)"
           className="flex items-center px-3 border-l border-i3x-border text-i3x-warning hover:bg-i3x-warning/10 transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary focus-visible:ring-inset"
         >
           &lt;/&gt; Developer

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDevTools: () => {
     return ipcRenderer.invoke('open-devtools')
   },
+  openNewWindow: () => ipcRenderer.send('open-new-window'),
   setIgnoreCertErrors: (flag) => ipcRenderer.send('set-ignore-cert-errors', flag),
   onAppBeforeQuit: (callback) => {
     const listener = () => callback()

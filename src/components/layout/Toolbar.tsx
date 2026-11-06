@@ -9,7 +9,8 @@ import { clearCatalogCache } from '../../data/catalogData'
 import { setPerfTraceEnabled } from '../../diagnostics/perfTrace'
 import { usePerfTraceEnabled } from '../../diagnostics/PerfProfiler'
 import { SearchModal } from '../search/SearchModal'
-import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon, CameraIcon } from '../common/icons'
+import { AboutDialog } from './AboutDialog'
+import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon, CameraIcon, NewWindowIcon } from '../common/icons'
 import { Spinner } from '../common/Spinner'
 import iconPng from '/icon.png'
 
@@ -26,6 +27,7 @@ export function Toolbar() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
   const [showSnapshotMenu, setShowSnapshotMenu] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const perfTraceEnabled = usePerfTraceEnabled()
   // One hidden file input serves both load actions; this ref says which one is pending.
   const snapshotFileTarget = useRef<'baseline' | 'comparison'>('baseline')
@@ -160,8 +162,8 @@ export function Toolbar() {
       {window.electronAPI?.platform === 'darwin' && <div className="w-16" />}
 
       <button
-        onClick={showHome}
-        title="Model overview"
+        onClick={() => setShowAbout(true)}
+        title="About i3X Explorer"
         className="no-drag flex items-center gap-2 rounded px-1 py-1 hover:bg-i3x-bg transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
         <img src={iconPng} alt="" className="w-5 h-5" />
@@ -170,7 +172,7 @@ export function Toolbar() {
 
       <button
         onClick={toggleSidebar}
-        title={sidebarCollapsed ? 'Show tree panel' : 'Hide tree panel'}
+        title={sidebarCollapsed ? 'Show the tree panel' : 'Hide the tree panel'}
         aria-label={sidebarCollapsed ? 'Show tree panel' : 'Hide tree panel'}
         className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors"
       >
@@ -184,7 +186,7 @@ export function Toolbar() {
 
       <button
         onClick={showHome}
-        title="Home"
+        title="Home: deselect and show the model overview"
         aria-label="Home"
         className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
       >
@@ -197,7 +199,7 @@ export function Toolbar() {
       <button
         onClick={goBack}
         disabled={!canGoBack}
-        title="Back"
+        title="Back to the previous page"
         aria-label="Back"
         className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-i3x-text-muted"
       >
@@ -210,7 +212,7 @@ export function Toolbar() {
       <button
         onClick={goForward}
         disabled={!canGoForward}
-        title="Forward"
+        title="Forward to the next page"
         aria-label="Forward"
         className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-i3x-text-muted"
       >
@@ -223,7 +225,7 @@ export function Toolbar() {
       <div className="flex-1 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setShowConnectionDialog(true)}
-          title={serverUrl || 'Click to configure'}
+          title={serverUrl ? `${serverUrl}: click to change server settings` : 'Configure the server connection'}
           className="px-3 py-1.5 text-xs font-mono bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors motion-reduce:transition-none truncate min-w-0 max-w-[10rem] sm:max-w-sm lg:max-w-2xl"
         >
           {serverUrl || 'Click to configure'}
@@ -233,6 +235,7 @@ export function Toolbar() {
           <>
             <button
               onClick={handleConnect}
+              title="Connect to the server"
               disabled={isConnecting || !serverUrl}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -251,6 +254,7 @@ export function Toolbar() {
         ) : (
           <button
             onClick={handleDisconnect}
+            title="Disconnect from the server and stop its subscriptions"
             className="px-3 py-1.5 text-xs bg-i3x-error/20 text-i3x-error rounded hover:bg-i3x-error/30 transition-colors"
           >
             Disconnect
@@ -278,10 +282,21 @@ export function Toolbar() {
           className="hidden"
           onChange={handleSnapshotFile}
         />
+        <button
+          onClick={() => {
+            if (window.electronAPI) window.electronAPI.openNewWindow()
+            else window.open(window.location.href, '_blank')
+          }}
+          title="Open a new window (Ctrl+N / ⌘N)"
+          aria-label="New window"
+          className="w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
+        >
+          <NewWindowIcon size={16} />
+        </button>
         <div className="relative">
           <button
             onClick={() => setShowSnapshotMenu(m => !m)}
-            title="Snapshot & diff"
+            title="Snapshots: save the catalog to a file, or diff against a saved one"
             aria-label="Snapshot and diff"
             className="relative w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
           >
@@ -307,6 +322,7 @@ export function Toolbar() {
                 </button>
                 <button
                   onClick={() => pickSnapshotFile('baseline')}
+                  title="Load a saved snapshot as a baseline and compare it with the live catalog"
                   className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
                 >
                   Load baseline & diff…
@@ -316,12 +332,14 @@ export function Toolbar() {
                     <div className="border-t border-i3x-border my-1" />
                     <button
                       onClick={() => { openDiffView(); setShowSnapshotMenu(false) }}
+                      title="Show the differences between the baseline and the current catalog"
                       className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
                     >
                       View diff
                     </button>
                     <button
                       onClick={() => pickSnapshotFile('comparison')}
+                      title="Diff the baseline against another snapshot file instead of the live catalog"
                       className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
                     >
                       Compare against second file…
@@ -329,6 +347,7 @@ export function Toolbar() {
                     {hasComparison && (
                       <button
                         onClick={() => { clearComparison(); setShowSnapshotMenu(false) }}
+                        title="Drop the second file and diff against the live catalog again"
                         className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
                       >
                         Compare against live catalog
@@ -336,6 +355,7 @@ export function Toolbar() {
                     )}
                     <button
                       onClick={() => { clearBaseline(); setShowSnapshotMenu(false) }}
+                      title="Unload the baseline snapshot and free its memory"
                       className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
                     >
                       Clear baseline
@@ -349,7 +369,7 @@ export function Toolbar() {
         <div className="relative">
           <button
             onClick={() => setShowSettingsMenu(m => !m)}
-            title="Settings"
+            title="Settings: refresh interval, catalog cache, performance tracing"
             aria-label="Settings"
             className="w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
           >
@@ -366,6 +386,7 @@ export function Toolbar() {
                   <button
                     key={opt.ms}
                     onClick={() => { setPollIntervalMs(opt.ms); setShowSettingsMenu(false) }}
+                    title={`Set the background refresh interval: ${opt.label}`}
                     className={`w-full text-left px-3 py-2 text-xs hover:bg-i3x-bg transition-colors flex items-center justify-between ${
                       pollIntervalMs === opt.ms ? 'text-i3x-primary' : 'text-i3x-text'
                     }`}
@@ -377,6 +398,7 @@ export function Toolbar() {
                 <div className="border-t border-i3x-border my-1" />
                 <button
                   onClick={() => { triggerManualRefresh(); setShowSettingsMenu(false) }}
+                  title="Re-fetch the catalog and expanded branches from the server now"
                   disabled={!isConnected}
                   className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -395,6 +417,7 @@ export function Toolbar() {
                 </button>
                 <button
                   onClick={() => { void clearCatalogCache(); setShowSettingsMenu(false) }}
+                  title="Delete the catalogs stored on this device for fast reconnects"
                   className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
                 >
                   Clear cached catalogs
@@ -477,6 +500,8 @@ export function Toolbar() {
           </div>
         </div>
       )}
+
+      {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
 
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
 

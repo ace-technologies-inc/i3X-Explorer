@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, safeStorage, nativeTheme, Menu } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, safeStorage, nativeTheme, Menu, MenuItem } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { mergeRuntimeConfig, readRuntimeConfigFile } from './runtimeConfig'
@@ -46,6 +46,8 @@ ipcMain.handle('open-devtools', (event) => {
     webContents.openDevTools({ mode: 'detach' })
   }
 })
+
+ipcMain.on('open-new-window', () => createWindow())
 
 let ignoreCertErrors = false
 
@@ -117,17 +119,21 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
   }
 })
 
-let mainWindow: BrowserWindow | null = null
+const windows = new Set<BrowserWindow>()
 
 // Coordinates renderer cleanup (closing SSE streams, deleting server-side
 // subscriptions) before the app exits. Without this the process is killed
 // while subscriptions are still registered server-side.
 let cleanupRan = false
+let pendingCleanup = new Set<number>()
 let cleanupAck: (() => void) | null = null
 
-ipcMain.on('app-cleanup-done', () => {
-  cleanupAck?.()
-  cleanupAck = null
+ipcMain.on('app-cleanup-done', (event) => {
+  pendingCleanup.delete(event.sender.id)
+  if (pendingCleanup.size === 0) {
+    cleanupAck?.()
+    cleanupAck = null
+  }
 })
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
@@ -139,7 +145,7 @@ function createWindow() {
     ? path.join(__dirname, '../electron/preload.cjs')
     : path.join(__dirname, 'preload.cjs')
 
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 800,
@@ -159,34 +165,59 @@ function createWindow() {
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f5f5f5',
     show: false
   })
+  windows.add(win)
 
   // Show window when ready to avoid flash.
   // On Linux with hardware acceleration disabled, ready-to-show depends on the
   // GPU compositor for first-paint and may never fire. did-finish-load fires after
   // page navigation completes regardless of GPU state and serves as the fallback.
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  win.once('ready-to-show', () => win.show())
   if (process.platform === 'linux') {
-    mainWindow.webContents.once('did-finish-load', () => {
-      if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed() && !win.isVisible()) win.show()
     })
   }
 
   // Open external links in browser
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  // Ctrl+N opens another window where there is no application menu to carry the shortcut
+  if (process.platform !== 'darwin') {
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.control && !input.alt && !input.shift && input.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        createWindow()
+      }
+    })
+  }
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
 
   if (VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(VITE_DEV_SERVER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+    win.loadURL(VITE_DEV_SERVER_URL)
+    // Only the first window; later ones would each pop their own inspector
+    if (windows.size === 1) win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
+  win.on('closed', () => {
+    windows.delete(win)
   })
+}
+
+// Adds File > New Window (Cmd+N) to the default macOS menu.
+function addNewWindowMenuItem() {
+  const menu = Menu.getApplicationMenu()
+  const fileMenu = menu?.items.find((item) => item.role === 'fileMenu' || item.label === 'File')
+  if (!menu || !fileMenu?.submenu) return
+  fileMenu.submenu.insert(0, new MenuItem({
+    label: 'New Window',
+    accelerator: 'CmdOrCtrl+N',
+    click: () => createWindow()
+  }))
+  Menu.setApplicationMenu(menu)
 }
 
 app.whenReady().then(() => {
@@ -194,6 +225,8 @@ app.whenReady().then(() => {
   // On macOS the system menu bar is kept (provides About, Edit shortcuts, etc.)
   if (process.platform !== 'darwin') {
     Menu.setApplicationMenu(null)
+  } else {
+    addNewWindowMenuItem()
   }
 
   createWindow()
@@ -201,14 +234,17 @@ app.whenReady().then(() => {
 
 app.on('before-quit', async (event) => {
   if (cleanupRan) return
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+  const live = Array.from(windows).filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed())
+  if (live.length === 0) {
     cleanupRan = true
     return
   }
 
   event.preventDefault()
 
-  mainWindow.webContents.send('app-before-quit')
+  // Every window owns its own subscriptions, so each one cleans up before exit.
+  pendingCleanup = new Set(live.map((w) => w.webContents.id))
+  live.forEach((w) => w.webContents.send('app-before-quit'))
 
   await new Promise<void>((resolve) => {
     cleanupAck = resolve
