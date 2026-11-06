@@ -47,26 +47,11 @@ jobs:
           AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
           AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
 
-      # The installers, plus the app exe in each *-unpacked folder (the same file that was
-      # packed into the installers), must all carry a valid, timestamped signature.
+      # The installers, plus every exe and DLL in each *-unpacked folder (the same files
+      # that were packed into the installers): see scripts/verify-win-signing.ps1.
       - name: Verify signatures
         shell: pwsh
-        run: |
-          $files = @(Get-ChildItem release -Filter '*.exe' -Recurse |
-            Where-Object { $_.Directory.Name -notlike '*-unpacked' -or $_.Name -eq 'i3X Explorer.exe' })
-          $apps = @($files | Where-Object { $_.Name -eq 'i3X Explorer.exe' })
-          if ($apps.Count -eq 0) { throw "No unpacked 'i3X Explorer.exe' found to verify" }
-          $bad = 0
-          foreach ($f in $files) {
-            $sig = Get-AuthenticodeSignature -FilePath $f.FullName
-            if ($sig.Status -ne 'Valid' -or -not $sig.TimeStamperCertificate) {
-              Write-Host "::error::$($f.FullName): $($sig.Status) $($sig.StatusMessage)"
-              $bad++
-            } else {
-              Write-Host "OK  $($f.FullName)  ($($sig.SignerCertificate.Subject))"
-            }
-          }
-          if ($bad -gt 0) { throw "$bad file(s) not validly signed" }
+        run: ./scripts/verify-win-signing.ps1 -ReleaseDir release
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

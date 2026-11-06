@@ -61,6 +61,7 @@
       }
     ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "signExts": [".dll"],
     "signtoolOptions": {
       "sign": "./scripts/winSign.cjs",
       "signingHashAlgorithms": ["sha256"]

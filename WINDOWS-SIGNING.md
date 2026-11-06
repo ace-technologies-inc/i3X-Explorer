@@ -23,12 +23,15 @@ The build script (`scripts/build-sign-win.ps1`) runs on a Windows machine and:
    downloads the Azure Trusted Signing dlib from NuGet (cached in
    `scripts\.azure-signing\` after the first run) and writes its `metadata.json`
 2. Builds with `electron-builder`, which signs **while packaging** by calling
-   `scripts/winSign.cjs` for each file: the app exe before it goes into the
-   installers, the uninstaller, then the NSIS installer and the portable exe.
+   `scripts/winSign.cjs` for each file: the app exe and its DLLs before they go
+   into the installers, the uninstaller, then the NSIS installer and the
+   portable exe. DLLs that already carry a valid signature (Electron ships a
+   couple signed by Microsoft) keep it.
    The hook runs `signtool.exe` with the dlib, which sends the file hash to
    Azure, receives the signature, and embeds it
-3. Verifies that every installer and the unpacked `i3X Explorer.exe` carry a
-   valid, timestamped signature, and fails if any doesn't
+3. Runs `scripts/verify-win-signing.ps1`: every installer and every exe in the
+   unpacked app must carry our valid, timestamped signature, and every DLL a
+   valid one from anyone. The build fails otherwise
 
 Signing *after* electron-builder finishes (what this script used to do) leaves
 the installed app exe unsigned, because it is already compressed inside the

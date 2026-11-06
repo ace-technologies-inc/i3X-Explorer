@@ -177,39 +177,18 @@ if ($builderExit -ne 0) { Abort "electron-builder failed (building or signing; s
 Start-Sleep -Seconds 3
 
 # ── Verify ────────────────────────────────────────────────────────────────────
-# Checks the shipped installers AND the app exe in each *-unpacked folder. The unpacked
-# exe is the same file that was packed into the installers, so if it is signed, so is
-# what users end up running.
+# Installers, plus every exe and DLL in each *-unpacked folder (the same files that were
+# packed into the installers): see verify-win-signing.ps1 for the rules.
 
 Write-Header "Verifying signatures"
 
 $ReleaseDir = Join-Path $ProjectDir "release\$version"
-$exeFiles   = @(Get-ChildItem -Path $ReleaseDir -Filter '*.exe' -ErrorAction SilentlyContinue)
-$appExes    = @(Get-ChildItem -Path $ReleaseDir -Filter 'i3X Explorer.exe' -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.DirectoryName -like '*-unpacked' })
-
-if ($exeFiles.Count -eq 0) { Abort "No installer .exe files found in $ReleaseDir, did the build succeed?" }
-if ($appExes.Count -eq 0)  { Abort "No unpacked 'i3X Explorer.exe' found under $ReleaseDir, cannot verify the app itself was signed." }
-
-$allVerified = $true
-foreach ($exe in $exeFiles + $appExes) {
-    $label = $exe.FullName.Substring($ReleaseDir.Length + 1)
-    $sig   = Get-AuthenticodeSignature -FilePath $exe.FullName
-    if ($sig.Status -ne 'Valid') {
-        Write-Fail "$label  ·  $($sig.Status): $($sig.StatusMessage)"
-        $allVerified = $false
-    } elseif (-not $sig.TimeStamperCertificate) {
-        # Trusted Signing certs live ~3 days; without a timestamp the signature expires with them.
-        Write-Fail "$label  ·  signed but NOT timestamped"
-        $allVerified = $false
-    } else {
-        Write-Ok "$label  ·  $($sig.SignerCertificate.Subject)"
-    }
+try {
+    & (Join-Path $ScriptDir 'verify-win-signing.ps1') -ReleaseDir $ReleaseDir
+} catch {
+    Abort "$_"
 }
-
-if (-not $allVerified) {
-    Abort "One or more files failed signature verification, do NOT distribute these builds."
-}
+$exeFiles = @(Get-ChildItem -Path $ReleaseDir -Filter '*.exe')
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
