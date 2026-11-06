@@ -14,6 +14,7 @@ export function StatusBar() {
   const isConnected = useConnectionStore(state => state.isConnected)
   const isConnecting = useConnectionStore(state => state.isConnecting)
   const credentials = useConnectionStore(state => state.credentials)
+  const accountName = useConnectionStore(state => state.accountName)
   const serverUrl = useConnectionStore(state => state.serverUrl)
   const error = useConnectionStore(state => state.error)
 
@@ -47,7 +48,7 @@ export function StatusBar() {
           {statusLabel}
         </span>
         {isConnected && credentials && (
-          <span title="Authenticated connection" className="flex items-center">
+          <span title={accountName ? `Signed in as ${accountName}` : 'Authenticated connection'} className="flex items-center">
             <LockIcon size={12} />
           </span>
         )}

@@ -11,7 +11,14 @@ import type {
   GetSubscriptionsResponse,
   ServerCapabilities
 } from './types'
-import { buildAuthHeaders } from './auth'
+import {
+  CredentialRedirectError,
+  CredentialScopeError,
+  isUnfollowedRedirect,
+  redirectModeFor,
+  StaticAuthProvider,
+  type AuthProvider,
+} from './authProvider'
 import { HttpStatusError } from './subscription'
 import {
   bulkOutcome,
@@ -238,6 +245,7 @@ async function fetchWithTimeout(
 export class I3XClient {
   private baseUrl: string
   private credentials: ClientCredentials | null
+  private auth: AuthProvider
   // Track last seen sequence number per subscription for sync acknowledgment
   private syncSequenceNumbers = new Map<string, number>()
   // clientId generated at createSubscription time; required by all subsequent subscription ops
@@ -246,13 +254,37 @@ export class I3XClient {
   private capabilities: ServerCapabilities | null = null
   private inFlightReads = new Map<string, Promise<unknown>>()
 
-  constructor(baseUrl: string, credentials?: ClientCredentials | null) {
+  constructor(baseUrl: string, credentials?: ClientCredentials | null, auth?: AuthProvider) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
     this.credentials = credentials ?? null
+    this.auth = auth ?? new StaticAuthProvider(this.credentials)
   }
 
   getCredentials(): ClientCredentials | null {
     return this.credentials
+  }
+
+  getAuthProvider(): AuthProvider {
+    return this.auth
+  }
+
+  /** Sends the request with fresh auth headers, and once more if a 401 led the provider to renew them. */
+  private async authorizedFetch(
+    url: string,
+    init: { method: string; headers: Record<string, string>; body?: string }
+  ): Promise<Response> {
+    // Every request goes to the base URL, so checking it checks the destination.
+    if (this.auth.permits && !this.auth.permits(this.baseUrl)) throw new CredentialScopeError(this.baseUrl)
+    const send = async () => {
+      const headers = { ...init.headers, ...(await this.auth.getHeaders()) }
+      const response = await fetchWithTimeout(url, { ...init, headers, redirect: redirectModeFor(this.auth) })
+      if (this.auth.permits && isUnfollowedRedirect(response)) throw new CredentialRedirectError()
+      return { headers, response }
+    }
+    const first = await send()
+    if (first.response.status !== 401 || !(await this.auth.handleUnauthorized(first.headers))) return first.response
+    await first.response.body?.cancel().catch(() => undefined)
+    return (await send()).response
   }
 
   getBaseUrl(): string {
@@ -276,10 +308,9 @@ export class I3XClient {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (descriptor.body !== undefined) headers['Content-Type'] = 'application/json'
-    Object.assign(headers, buildAuthHeaders(this.credentials))
 
     return this.coalesceRead(descriptor.method, url, descriptor.body, 'inspector', async () => {
-      const response = await fetchWithTimeout(url, {
+      const response = await this.authorizedFetch(url, {
         method: descriptor.method,
         headers,
         ...(descriptor.body !== undefined ? { body: JSON.stringify(descriptor.body) } : {}),
@@ -364,14 +395,11 @@ export class I3XClient {
       ...requestHeaders,
     }
 
-    Object.assign(headers, buildAuthHeaders(this.credentials));
-
-    const options: RequestInit = { method, headers }
-    if (body) {
-      options.body = JSON.stringify(body)
-    }
-
-    const response = await fetchWithTimeout(url, options)
+    const response = await this.authorizedFetch(url, {
+      method,
+      headers,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
     const status = response.status
     const responseHeaders = response.headers
 
@@ -442,35 +470,41 @@ export class I3XClient {
   // not identify as one rejects with UnsupportedServerError; a hung or
   // unreachable server surfaces as itself (TimeoutError or a network error).
   private async verifyServer(): Promise<void> {
-    let url = `${this.baseUrl}/info`
-    if (url.includes('://localhost:')) {
-      url = url.replace('://localhost:', '://127.0.0.1:')
-    }
+    const infoUrl = () => `${this.baseUrl}/info`.replace('://localhost:', '://127.0.0.1:')
+    const url = infoUrl()
     const headers: Record<string, string> = { 'Accept': 'application/json' }
-    Object.assign(headers, buildAuthHeaders(this.credentials));
-
-    const probe = await this.coalesceRead('GET', url, undefined, 'info-probe', async () => {
-      const response = await fetchWithTimeout(url, { method: 'GET', headers })
-      return {
-        ok: response.ok,
-        status: response.status,
-        redirected: response.redirected,
-        url: response.url,
-        body: response.ok ? await response.json().catch(() => undefined) : undefined,
-      }
+    const readInfo = async (response: Response) => ({
+      ok: response.ok,
+      status: response.status,
+      redirected: response.redirected,
+      url: response.url,
+      body: response.ok ? await response.json().catch(() => undefined) : undefined,
     })
+
+    // Scoped credentials are sent only once the redirect target is known to be in scope.
+    const firstProbe = await this.coalesceRead('GET', url, undefined, 'info-probe', async () => readInfo(
+      this.auth.permits
+        ? await fetchWithTimeout(url, { method: 'GET', headers })
+        : await this.authorizedFetch(url, { method: 'GET', headers })
+    ))
 
     // If the server redirected (e.g. http → https upgrade), adopt the final URL
     // for all subsequent requests. GETs survive a 301/302 redirect but browsers
     // convert POST to GET and drop the body, so every POST would fail otherwise.
     // Only adopt when the final URL still ends in /info, a redirect to some
     // unrelated page (login portal, captive portal) must not corrupt the base.
-    if (probe.redirected && probe.url) {
-      const match = probe.url.match(/^(.+?)\/info\/?$/)
+    if (firstProbe.redirected && firstProbe.url) {
+      const match = firstProbe.url.match(/^(.+?)\/info\/?$/)
       if (match) {
+        if (this.auth.permits && !this.auth.permits(match[1])) throw new CredentialScopeError(match[1])
         this.baseUrl = match[1]
       }
     }
+
+    // A server whose /info needs the sign-in is asked again with it, at the base just checked.
+    const probe = this.auth.permits && (firstProbe.status === 401 || firstProbe.status === 403)
+      ? await readInfo(await this.authorizedFetch(infoUrl(), { method: 'GET', headers }))
+      : firstProbe
 
     // Interpretation lives in readInfoResponse (normalize.ts) so the rules are
     // unit-testable; an unparseable body is signalled as `undefined`.
@@ -861,6 +895,9 @@ export class I3XClient {
       // release is a different answer again, and the caller says so, as it does
       // for a server that answered 401/403 and so never got to say what it is.
       if (err instanceof TimeoutError || err instanceof UnsupportedServerError || err instanceof AuthRequiredError) throw err
+      if (err instanceof CredentialScopeError || err instanceof CredentialRedirectError) throw err
+      // A refused credential is not an unreachable server; let the caller name it.
+      if (err instanceof HttpStatusError && (err.status === 401 || err.status === 403)) throw err
       return false
     }
   }
@@ -873,8 +910,8 @@ export function getClient(): I3XClient | null {
   return clientInstance
 }
 
-export function createClient(baseUrl: string, credentials?: ClientCredentials | null): I3XClient {
-  clientInstance = new I3XClient(baseUrl, credentials)
+export function createClient(baseUrl: string, credentials?: ClientCredentials | null, auth?: AuthProvider): I3XClient {
+  clientInstance = new I3XClient(baseUrl, credentials, auth)
   return clientInstance
 }
 

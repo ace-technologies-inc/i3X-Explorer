@@ -55,7 +55,9 @@ export function resolveHeaders(
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (descriptor.body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const auth = buildAuthHeaders(credentials)
+  const auth = credentials?.type === 'oauth'
+    ? { Authorization: 'Bearer YOUR_TOKEN' }
+    : buildAuthHeaders(credentials)
   for (const [name, value] of Object.entries(auth)) {
     headers[name] = redact ? redactValue(name, value) : value
   }

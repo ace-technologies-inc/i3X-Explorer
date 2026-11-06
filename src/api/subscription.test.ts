@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpStatusError, PollingSubscription, SSESubscription, isSubscriptionGoneError } from './subscription'
 import type { SyncResponseItem } from './types'
+import { BearerTokenProvider, StaticAuthProvider } from './authProvider'
 
 // Flush chained microtasks (each `await` in the class body consumes one turn).
 async function flushMicrotasks(turns = 10): Promise<void> {
@@ -140,6 +141,59 @@ describe('SSESubscription', () => {
     await flushMicrotasks()
 
     expect(onError).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchStub).toHaveBeenCalledTimes(1)
+  })
+
+  it('reopens the stream at once with a renewed token after a 401', async () => {
+    const fetchStub = vi.fn(async (_url: string, init: RequestInit) =>
+      (init.headers as Record<string, string>).Authorization === 'Bearer renewed'
+        ? endedStreamResponse()
+        : errorResponse(401, 'Unauthorized'))
+    vi.stubGlobal('fetch', fetchStub)
+    const onError = vi.fn()
+    const auth = new BearerTokenProvider(async () => ({ accessToken: 'renewed' }), { accessToken: 'expired' })
+    const sub = new SSESubscription('http://server/stream', vi.fn(), onError, auth)
+
+    sub.connect()
+    await flushMicrotasks(30)
+
+    expect(fetchStub.mock.calls.map(call => (call[1].headers as Record<string, string>).Authorization))
+      .toEqual(['Bearer expired', 'Bearer renewed'])
+    expect(onError).not.toHaveBeenCalled()
+    sub.disconnect()
+  })
+
+  it('fails fast when the sign-in cannot be renewed, instead of reconnecting', async () => {
+    const fetchStub = vi.fn(async () => endedStreamResponse())
+    vi.stubGlobal('fetch', fetchStub)
+    const onError = vi.fn()
+    const auth = new BearerTokenProvider(async () => { throw new Error('The sign-in has expired. Reconnect to sign in again.') })
+    const sub = new SSESubscription('http://server/stream', vi.fn(), onError, auth)
+
+    sub.connect()
+    await flushMicrotasks(30)
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect((onError.mock.calls[0][0] as Error).message).toBe('The sign-in has expired. Reconnect to sign in again.')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchStub).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [401, 'a credential nothing can renew'],
+    [403, 'an account the server does not allow'],
+  ])('%i (%s) fails fast to onError without reconnecting', async status => {
+    const fetchStub = vi.fn(async () => errorResponse(status, 'Refused'))
+    vi.stubGlobal('fetch', fetchStub)
+    const onError = vi.fn()
+    const sub = new SSESubscription('http://server/stream', vi.fn(), onError, new StaticAuthProvider({ type: 'bearer', token: 't' }))
+
+    sub.connect()
+    await flushMicrotasks(30)
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect((onError.mock.calls[0][0] as HttpStatusError).status).toBe(status)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(fetchStub).toHaveBeenCalledTimes(1)
   })

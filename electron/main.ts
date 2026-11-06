@@ -1,6 +1,16 @@
 import { app, BrowserWindow, shell, ipcMain, safeStorage, nativeTheme, Menu } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { mergeRuntimeConfig, readRuntimeConfigFile } from './runtimeConfig'
+import { signInWithLoopback } from './oauthLoopback'
+import {
+  configurationFor,
+  endSessionUrl,
+  refreshTokens,
+  revokeTokens,
+  type OAuthSettings,
+  type TokenSet,
+} from '../src/auth/oauthProtocol'
 
 // ES Module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url)
@@ -38,6 +48,59 @@ ipcMain.handle('open-devtools', (event) => {
 })
 
 let ignoreCertErrors = false
+
+// Read once at launch: an administrator's file beside the executable, then the user's, with the environment over either.
+let runtimeConfig: Record<string, unknown> | null = null
+ipcMain.handle('get-runtime-config', () => {
+  runtimeConfig ??= mergeRuntimeConfig(
+    readRuntimeConfigFile([path.dirname(app.getPath('exe')), app.getPath('userData')]),
+    process.env
+  )
+  return runtimeConfig
+})
+
+const openSignInPage = (url: string) => {
+  if (!/^https:\/\//i.test(url) && !/^http:\/\/(localhost|127\.0\.0\.1)[:/]/i.test(url)) {
+    throw new Error('Refusing to open a sign-in page that is not https')
+  }
+  return shell.openExternal(url)
+}
+
+const logged = (operation: string) => (err: unknown) => {
+  console.error(`[oauth] ${operation} failed:`, err instanceof Error ? err.message : err)
+  throw err
+}
+
+// Discovery and every token request run here, not in the renderer: an issuer may refuse a desktop client's request that carries a browser Origin.
+let signInInProgress: AbortController | null = null
+
+ipcMain.handle('oauth-sign-in', async (_event, settings: OAuthSettings) => {
+  signInInProgress?.abort()
+  const controller = new AbortController()
+  signInInProgress = controller
+  try {
+    const config = await configurationFor(settings)
+    return await signInWithLoopback(config, settings, { openBrowser: openSignInPage, signal: controller.signal })
+  } catch (err) {
+    return logged('sign-in')(err)
+  } finally {
+    if (signInInProgress === controller) signInInProgress = null
+  }
+})
+
+ipcMain.handle('oauth-cancel', () => signInInProgress?.abort())
+
+ipcMain.handle('oauth-refresh', async (_event, settings: OAuthSettings, tokens: TokenSet) =>
+  refreshTokens(await configurationFor(settings), settings, tokens).catch(logged('token refresh'))
+)
+
+ipcMain.handle('oauth-sign-out', async (_event, settings: OAuthSettings, tokens: TokenSet | undefined, endSession: boolean) => {
+  const config = await configurationFor(settings).catch(logged('sign-out'))
+  const revoked = tokens ? await revokeTokens(config, tokens).catch(() => false) : false
+  const page = endSession ? endSessionUrl(config, tokens) : undefined
+  if (page) await openSignInPage(page.href)
+  return { revoked, endedSession: !!page }
+})
 
 // Allow renderer to toggle certificate error bypass at runtime.
 // Needed for dev servers using self-signed certs.

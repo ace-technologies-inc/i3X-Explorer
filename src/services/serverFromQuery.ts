@@ -42,7 +42,8 @@ export function applyServerFromQuery(): void {
     // the user explicitly chose in the dialog.
     if (store.serverUrlUserSet) return
     store.setServerUrl(serverUrl)
-    store.addRecentUrl(serverUrl)
+    store.setServerAuth(null)
+    store.addRecentConnection({ url: serverUrl, auth: 'none' })
   }
 
   if (useConnectionStore.persist.hasHydrated()) {
