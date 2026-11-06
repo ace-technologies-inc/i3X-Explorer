@@ -156,3 +156,8 @@ export function cancelOAuthSignIn(transport: OAuthTransport = defaultTransport()
 export function hasOAuthSession(settings: OAuthSettings): boolean {
   return sessions.has(sessionKey(settings))
 }
+
+/** Who the session for `settings` signed in as, whichever server it was opened for. */
+export function oauthSessionAccount(settings: OAuthSettings): string | undefined {
+  return sessions.get(sessionKey(settings))?.accountName
+}

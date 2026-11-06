@@ -28,8 +28,10 @@ export async function performConnect(): Promise<void> {
   connection.setRedirectNotice(null)
   connection.setUnsupportedServer(null)
 
-  // Use saved credentials if none are currently set
-  const activeCredentials = connection.credentials ?? connection.getCredentialsForUrl(serverUrl)
+  // Use the saved credentials for this server's method if none are currently set
+  const savedAuth = connection.serverAuth
+  const activeCredentials = connection.credentials
+    ?? (savedAuth && savedAuth !== 'none' ? connection.getCredentials(serverUrl, savedAuth) : null)
   if (activeCredentials && !connection.credentials) {
     connection.setCredentials(activeCredentials)
   }
@@ -57,12 +59,10 @@ export async function performConnect(): Promise<void> {
       const finalUrl = client.getBaseUrl()
       if (finalUrl !== serverUrl.replace(/\/$/, '')) {
         connection.setServerUrl(finalUrl)
-        if (activeCredentials) {
-          connection.saveCredentialsForUrl(finalUrl, activeCredentials)
-        }
+        connection.saveCredentials(finalUrl, activeCredentials)
         connection.setRedirectNotice({ from: serverUrl, to: finalUrl })
       }
-      connection.addRecentUrl(finalUrl)
+      connection.addRecentConnection({ url: finalUrl, auth: activeCredentials?.type ?? 'none' })
 
       // Load initial data
       explorer.setLoading(true)

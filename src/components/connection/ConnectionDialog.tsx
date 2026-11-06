@@ -1,21 +1,22 @@
 import { useId, useState, type ReactNode } from 'react'
 import { useConnectionStore } from '../../stores/connection'
-import type { Credentials } from '../../stores/connection'
+import type { AuthMethod, ConnectionEntry, Credentials } from '../../stores/connection'
 import { oauthSettingsFor, performConnect, performDisconnect } from '../../services/connection'
 import { configuredServers, getRuntimeConfig, oauthProfilesFor, type ConfiguredServer, type OAuthProfile } from '../../config/runtimeConfig'
 import type { OAuthSettings } from '../../auth/oauthProtocol'
-import { defaultTransport, hasOAuthSession, signOutOAuth } from '../../auth/oauthSession'
+import { defaultTransport, hasOAuthSession, oauthSessionAccount, signOutOAuth } from '../../auth/oauthSession'
 import { CloseIcon, LockIcon, WarningIcon } from '../common/icons'
 
 const prepareSignIn = () => defaultTransport().prepareSignIn()
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
-type AuthMethod = 'none' | 'basic' | 'bearer' | 'header' | 'oauth'
-
 const normalizeUrl = (url: string) => url.replace(/\/+$/, '')
 
 const profilesFor = (url: string) => oauthProfilesFor(getRuntimeConfig().oauthProfiles, url)
+
+/** How a configured server signs in unless the person chose otherwise. */
+const configuredAuthFor = (url: string): AuthMethod => (profilesFor(url).length > 0 ? 'oauth' : 'none')
 
 const profileName = (profile: OAuthProfile) => profile.label ?? profile.name
 
@@ -45,19 +46,21 @@ const isHttpUrl = (url: string) => {
   }
 }
 
-const CREDENTIAL_LABELS: Record<Credentials['type'], string> = {
+const CREDENTIAL_LABELS: Record<AuthMethod, string> = {
+  none: 'No authentication',
   basic: 'Basic auth',
   bearer: 'Bearer token',
   header: 'Custom header',
   oauth: 'OAuth sign-in',
 }
 
-function ServerRow({ url, detail, selected, onSelect, onRemove }: {
+function ServerRow({ url, detail, selected, onSelect, onRemove, removeLabel }: {
   url: string
   detail?: ReactNode
   selected: boolean
   onSelect: () => void
   onRemove?: () => void
+  removeLabel?: string
 }) {
   return (
     <li className={`group flex items-center rounded transition-colors ${selected ? 'bg-i3x-primary/15' : 'hover:bg-i3x-bg'}`}>
@@ -75,7 +78,7 @@ function ServerRow({ url, detail, selected, onSelect, onRemove }: {
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remove ${url} from recent connections`}
+          aria-label={removeLabel}
           title="Remove, and forget its saved sign-in"
           className="p-1.5 mr-1 rounded text-i3x-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-i3x-text"
         >
@@ -89,35 +92,31 @@ function ServerRow({ url, detail, selected, onSelect, onRemove }: {
 export function ConnectionDialog() {
   const {
     serverUrl,
+    serverAuth,
     credentials: activeCredentials,
-    accountName,
     isConnected,
-    recentUrls,
+    recentConnections,
     ignoreCertErrors: storedIgnoreCertErrors,
     setServerUrl,
     setServerUrlUserSet,
+    setServerAuth,
     setCredentials,
-    saveCredentialsForUrl,
-    getCredentialsForUrl,
-    removeRecentUrl,
+    saveCredentials,
+    getCredentials,
+    removeRecentConnection,
     setIgnoreCertErrors,
     setShowConnectionDialog
   } = useConnectionStore()
 
-  // Initialize with saved credentials for current server
-  const savedCreds = getCredentialsForUrl(serverUrl)
+  const savedFor = (url: string, auth: AuthMethod) => (auth === 'none' ? null : getCredentials(url, auth))
 
-  function getInitialAuthMethod(): AuthMethod {
-    if (!savedCreds) return profilesFor(serverUrl).length > 0 ? 'oauth' : 'none'
-
-    return savedCreds.type;
-  }
-
+  const initialAuth = serverAuth ?? configuredAuthFor(serverUrl)
+  const savedCreds = savedFor(serverUrl, initialAuth)
   const savedOAuth = savedCreds?.type === 'oauth' ? savedCreds.settings : undefined
 
   const [inputUrl, setInputUrl] = useState(serverUrl)
   const [ignoreCertErrors, setLocalIgnoreCertErrors] = useState(storedIgnoreCertErrors)
-  const [authMethod, setAuthMethod] = useState<AuthMethod>(getInitialAuthMethod())
+  const [authMethod, setAuthMethod] = useState<AuthMethod>(initialAuth)
   const [username, setUsername] = useState(savedCreds?.type === 'basic' ? savedCreds.username : '')
   const [password, setPassword] = useState(savedCreds?.type === 'basic' ? savedCreds.password : '')
   const [token, setToken] = useState(savedCreds?.type === 'bearer' ? savedCreds.token : '')
@@ -140,9 +139,11 @@ export function ConnectionDialog() {
 
   // Read from the runtime configuration on every render and never saved, so they follow it.
   const configured = configuredServers(getRuntimeConfig())
-  const configuredKeys = new Set(configured.map(server => normalizeUrl(server.url)))
-  const otherRecentUrls = recentUrls.filter(url => !configuredKeys.has(normalizeUrl(url)))
-  const isSelected = (url: string) => normalizeUrl(url) === normalizeUrl(targetUrl)
+  const configuredEntries = configured.map(server => ({ url: server.url, auth: configuredAuthFor(server.url) }))
+  const sameEntry = (a: ConnectionEntry, b: ConnectionEntry) => normalizeUrl(a.url) === normalizeUrl(b.url) && a.auth === b.auth
+  // A configured server used another way is a separate recent connection.
+  const otherRecent = recentConnections.filter(entry => !configuredEntries.some(other => sameEntry(other, entry)))
+  const isSelected = (entry: ConnectionEntry) => sameEntry(entry, { url: targetUrl, auth: authMethod })
 
   const oauthProfiles = profilesFor(targetUrl)
   // A named profile that no longer applies stays unresolved: substituting another could sign in to a different tenant.
@@ -221,8 +222,9 @@ export function ConnectionDialog() {
     // Saving the dialog is the explicit user choice; from now on a ?server=
     // deep link must not override it.
     setServerUrlUserSet(true)
+    setServerAuth(newCredentials?.type ?? 'none')
     setCredentials(newCredentials)
-    saveCredentialsForUrl(targetUrl, newCredentials)
+    saveCredentials(targetUrl, newCredentials)
     setIgnoreCertErrors(ignoreCertErrors)
     window.electronAPI?.setIgnoreCertErrors(ignoreCertErrors)
     setShowConnectionDialog(false)
@@ -239,29 +241,69 @@ export function ConnectionDialog() {
     setShowConnectionDialog(false)
   }
 
-  const handleSelectServer = (url: string) => {
-    setInputUrl(url)
-    const creds = getCredentialsForUrl(url)
-    setUsername(creds?.type === 'basic' ? creds.username : '')
-    setPassword(creds?.type === 'basic' ? creds.password : '')
-    setToken(creds?.type === 'bearer' ? creds.token : '')
-    setHeaderName(creds?.type === 'header' ? creds.headerName : '')
-    setHeaderValue(creds?.type === 'header' ? creds.headerValue : '')
-    const oauth = creds?.type === 'oauth' ? creds : undefined
-    setCustomOAuth(!!oauth?.settings)
-    setOAuthProfile(oauth?.profile)
-    fillOAuth(oauth?.settings)
-    setAuthMethod(creds?.type ?? (profilesFor(url).length > 0 ? 'oauth' : 'none'))
+  const fillMethod = (creds: Credentials) => {
+    switch (creds.type) {
+      case 'basic':
+        setUsername(creds.username)
+        setPassword(creds.password)
+        break
+      case 'bearer':
+        setToken(creds.token)
+        break
+      case 'header':
+        setHeaderName(creds.headerName)
+        setHeaderValue(creds.headerValue)
+        break
+      case 'oauth':
+        setCustomOAuth(!!creds.settings)
+        setOAuthProfile(creds.profile)
+        fillOAuth(creds.settings)
+        break
+    }
+  }
+
+  const applyCredentials = (creds: Credentials | null) => {
+    setUsername('')
+    setPassword('')
+    setToken('')
+    setHeaderName('')
+    setHeaderValue('')
+    setCustomOAuth(false)
+    setOAuthProfile(undefined)
+    fillOAuth(null)
+    if (creds) fillMethod(creds)
+  }
+
+  const handleSelectServer = (entry: ConnectionEntry) => {
+    setInputUrl(entry.url)
+    applyCredentials(savedFor(entry.url, entry.auth))
+    setAuthMethod(entry.auth)
+  }
+
+  const hasDraft: Record<AuthMethod, () => boolean> = {
+    none: () => false,
+    basic: () => !!(username || password),
+    bearer: () => !!token,
+    header: () => !!(headerName || headerValue),
+    oauth: () => customOAuth || oauthProfile !== undefined,
+  }
+
+  // Each method keeps its own fields, so switching away and back never loses what was typed.
+  const handleAuthMethodChange = (method: AuthMethod) => {
+    const saved = savedFor(targetUrl, method)
+    if (saved && !hasDraft[method]()) fillMethod(saved)
+    setAuthMethod(method)
   }
 
   // Sign-out applies to whatever sign-in this server's OAuth settings resolve to, saved or default.
   const signOutSettings = authMethod === 'oauth' ? oauthSettingsFor(buildCredentials(), targetUrl) : null
   const canSignOut = !!signOutSettings && hasOAuthSession(signOutSettings)
   const isActiveSignIn = isConnected && activeCredentials?.type === 'oauth' && normalizeUrl(serverUrl) === normalizeUrl(targetUrl)
+  const signedInAs = signOutSettings ? oauthSessionAccount(signOutSettings) : undefined
   const signInStatus = !signOutSettings
     ? null
     : canSignOut
-      ? (isActiveSignIn && accountName ? `Signed in as ${accountName}` : 'Signed in')
+      ? (signedInAs ? `Signed in as ${signedInAs}` : 'Signed in')
       : 'You will be asked to sign in when you connect.'
 
   const primaryLabel = !isConnected
@@ -330,7 +372,7 @@ export function ConnectionDialog() {
             />
             {urlError && <p id={`${id}-url-error`} className="mt-1 text-xs text-i3x-error">{urlError}</p>}
 
-            {(configured.length > 0 || otherRecentUrls.length > 0) && (
+            {(configured.length > 0 || otherRecent.length > 0) && (
               <div className="mt-2 max-h-52 overflow-y-auto rounded border border-i3x-border py-1">
                 {configured.length > 0 && (
                   <>
@@ -338,37 +380,35 @@ export function ConnectionDialog() {
                       Configured
                     </p>
                     <ul aria-labelledby={`${id}-configured`} className="px-1">
-                      {configured.map((server) => (
+                      {configured.map((server, index) => (
                         <ServerRow
                           key={server.url}
                           url={server.url}
-                          selected={isSelected(server.url)}
-                          onSelect={() => handleSelectServer(server.url)}
+                          selected={isSelected(configuredEntries[index])}
+                          onSelect={() => handleSelectServer(configuredEntries[index])}
                           detail={serverDetail(server)}
                         />
                       ))}
                     </ul>
                   </>
                 )}
-                {otherRecentUrls.length > 0 && (
+                {otherRecent.length > 0 && (
                   <>
                     <p id={`${id}-recent`} className="px-3 pt-1 pb-0.5 text-[11px] font-medium text-i3x-text-muted">
                       Recent
                     </p>
                     <ul aria-labelledby={`${id}-recent`} className="px-1">
-                      {otherRecentUrls.map((url) => {
-                        const saved = getCredentialsForUrl(url)
-                        return (
-                          <ServerRow
-                            key={url}
-                            url={url}
-                            selected={isSelected(url)}
-                            onSelect={() => handleSelectServer(url)}
-                            onRemove={() => removeRecentUrl(url)}
-                            detail={saved && <><LockIcon size={11} />{CREDENTIAL_LABELS[saved.type]}</>}
-                          />
-                        )
-                      })}
+                      {otherRecent.map((entry) => (
+                        <ServerRow
+                          key={`${entry.url} ${entry.auth}`}
+                          url={entry.url}
+                          selected={isSelected(entry)}
+                          onSelect={() => handleSelectServer(entry)}
+                          onRemove={() => removeRecentConnection(entry)}
+                          removeLabel={`Remove ${entry.url} (${CREDENTIAL_LABELS[entry.auth]}) from recent connections`}
+                          detail={<>{entry.auth !== 'none' && <LockIcon size={11} />}{CREDENTIAL_LABELS[entry.auth]}</>}
+                        />
+                      ))}
                     </ul>
                   </>
                 )}
@@ -381,7 +421,7 @@ export function ConnectionDialog() {
             <select
               id={`${id}-auth`}
               value={authMethod}
-              onChange={(e) => setAuthMethod(e.target.value as AuthMethod)}
+              onChange={(e) => handleAuthMethodChange(e.target.value as AuthMethod)}
               className={inputClass}
             >
               <option value="none">None</option>

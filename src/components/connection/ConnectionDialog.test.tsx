@@ -2,9 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ConnectionDialog } from './ConnectionDialog'
-import { useConnectionStore } from '../../stores/connection'
-import { loadRuntimeConfig } from '../../config/runtimeConfig'
+import { connectionKey, useConnectionStore } from '../../stores/connection'
+import { getRuntimeConfig, loadRuntimeConfig } from '../../config/runtimeConfig'
 import { releaseSignInWindow } from '../../auth/popupSignIn'
+import { openOAuthSession, signOutOAuth } from '../../auth/oauthSession'
 
 const issuer = 'https://login.example.com/tenant/v2.0'
 
@@ -33,7 +34,9 @@ async function loadProfiles() {
 
 beforeEach(async () => {
   localStorage.clear()
-  useConnectionStore.setState({ savedCredentials: {}, credentials: null, isConnected: false, isConnecting: false, error: null })
+  useConnectionStore.setState({
+    savedCredentials: {}, recentConnections: [], serverAuth: null, credentials: null, isConnected: false, isConnecting: false, error: null,
+  })
   await loadProfiles()
 })
 
@@ -55,7 +58,7 @@ describe('ConnectionDialog OAuth', () => {
     expect([...picker.options].map(option => option.value)).toEqual(['company', 'partner'])
     save()
 
-    expect(useConnectionStore.getState().getCredentialsForUrl('https://server.example/v1'))
+    expect(useConnectionStore.getState().getCredentials('https://server.example/v1', 'oauth'))
       .toEqual({ type: 'oauth', profile: 'company' })
   })
 
@@ -66,14 +69,15 @@ describe('ConnectionDialog OAuth', () => {
     fireEvent.change(screen.getByLabelText('Sign-in profile'), { target: { value: 'partner' } })
     save()
 
-    expect(useConnectionStore.getState().getCredentialsForUrl('https://server.example/v1'))
+    expect(useConnectionStore.getState().getCredentials('https://server.example/v1', 'oauth'))
       .toEqual({ type: 'oauth', profile: 'partner' })
   })
 
   it('keeps a saved profile that is no longer configured unresolved until another is chosen', () => {
     useConnectionStore.setState({
       serverUrl: 'https://server.example/v1',
-      savedCredentials: { 'https://server.example/v1': { type: 'oauth', profile: 'retired' } },
+      serverAuth: 'oauth',
+      savedCredentials: { [connectionKey('https://server.example/v1', 'oauth')]: { type: 'oauth', profile: 'retired' } },
     })
     render(<ConnectionDialog />)
 
@@ -83,20 +87,24 @@ describe('ConnectionDialog OAuth', () => {
     const saveButton = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement
     expect(saveButton.disabled).toBe(true)
     save()
-    expect(useConnectionStore.getState().getCredentialsForUrl('https://server.example/v1'))
+    expect(useConnectionStore.getState().getCredentials('https://server.example/v1', 'oauth'))
       .toEqual({ type: 'oauth', profile: 'retired' })
 
     fireEvent.change(picker, { target: { value: 'partner' } })
     expect(saveButton.disabled).toBe(false)
     save()
-    expect(useConnectionStore.getState().getCredentialsForUrl('https://server.example/v1'))
+    expect(useConnectionStore.getState().getCredentials('https://server.example/v1', 'oauth'))
       .toEqual({ type: 'oauth', profile: 'partner' })
   })
 
   it('lists each server once, configured first, and marks only the current one despite a trailing slash', () => {
     useConnectionStore.setState({
       serverUrl: 'https://server.example/',
-      recentUrls: ['https://server.example/', 'https://api.i3x.dev/v1', 'https://other.example'],
+      recentConnections: [
+        { url: 'https://server.example', auth: 'oauth' },
+        { url: 'https://api.i3x.dev/v1', auth: 'none' },
+        { url: 'https://other.example', auth: 'none' },
+      ],
     })
     render(<ConnectionDialog />)
 
@@ -120,20 +128,93 @@ describe('ConnectionDialog OAuth', () => {
     expect(useConnectionStore.getState().showConnectionDialog).toBe(false)
   })
 
-  it('removes a recent server and forgets its saved credentials', () => {
+  it('removes a recent connection and forgets its saved credentials', () => {
     useConnectionStore.setState({
       serverUrl: 'https://server.example/v1',
-      recentUrls: ['https://other.example'],
-      savedCredentials: { 'https://other.example': { type: 'bearer', token: 't' } },
+      recentConnections: [{ url: 'https://other.example', auth: 'bearer' }],
+      savedCredentials: { [connectionKey('https://other.example', 'bearer')]: { type: 'bearer', token: 't' } },
     })
     render(<ConnectionDialog />)
 
     expect(screen.getByRole('button', { name: /^https:\/\/other\.example/ }).textContent).toContain('Bearer token')
-    fireEvent.click(screen.getByRole('button', { name: 'Remove https://other.example from recent connections' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove https://other.example (Bearer token) from recent connections' }))
 
-    expect(useConnectionStore.getState().recentUrls).toEqual([])
-    expect(useConnectionStore.getState().getCredentialsForUrl('https://other.example')).toBeNull()
+    expect(useConnectionStore.getState().recentConnections).toEqual([])
+    expect(useConnectionStore.getState().getCredentials('https://other.example', 'bearer')).toBeNull()
     expect(screen.queryByRole('button', { name: /^https:\/\/other\.example/ })).toBeNull()
+  })
+
+  it('keeps a configured server\'s sign-in and an API key used with it as two connections', () => {
+    const header = { type: 'header' as const, headerName: 'X-API-Key', headerValue: 'key-1' }
+    useConnectionStore.setState({
+      serverUrl: 'https://server.example',
+      serverAuth: 'oauth',
+      recentConnections: [{ url: 'https://server.example', auth: 'header' }, { url: 'https://server.example', auth: 'oauth' }],
+      savedCredentials: {
+        [connectionKey('https://server.example', 'header')]: header,
+        [connectionKey('https://server.example', 'oauth')]: { type: 'oauth', profile: 'partner' },
+      },
+    })
+    render(<ConnectionDialog />)
+
+    const rows = screen.getAllByRole('button', { name: /^https:\/\/server\.example/ })
+    expect(rows.map(row => row.textContent)).toEqual([
+      'https://server.exampleCompany account, Partner account',
+      'https://server.exampleCustom header',
+    ])
+    expect(rows.map(row => row.getAttribute('aria-current'))).toEqual(['true', null])
+    expect((screen.getByLabelText('Sign-in profile') as HTMLSelectElement).value).toBe('partner')
+
+    fireEvent.click(rows[1])
+    expect((screen.getByLabelText('Authentication') as HTMLSelectElement).value).toBe('header')
+    expect((screen.getByLabelText('Header Value') as HTMLInputElement).value).toBe('key-1')
+    expect(rows.map(row => row.getAttribute('aria-current'))).toEqual([null, 'true'])
+
+    fireEvent.change(screen.getByLabelText('Header Value'), { target: { value: 'key-2' } })
+    save()
+
+    const state = useConnectionStore.getState()
+    expect(state.serverAuth).toBe('header')
+    expect(state.getCredentials('https://server.example', 'header')).toEqual({ ...header, headerValue: 'key-2' })
+    expect(state.getCredentials('https://server.example', 'oauth')).toEqual({ type: 'oauth', profile: 'partner' })
+  })
+
+  it('loads what was saved for a method when the method is switched back to', () => {
+    useConnectionStore.setState({
+      serverUrl: 'https://other.example',
+      serverAuth: 'none',
+      savedCredentials: { [connectionKey('https://other.example', 'bearer')]: { type: 'bearer', token: 'saved-token' } },
+    })
+    render(<ConnectionDialog />)
+
+    fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'bearer' } })
+
+    expect((screen.getByLabelText('Token') as HTMLInputElement).value).toBe('saved-token')
+  })
+
+  it('keeps each method\'s draft when switching to a method with saved credentials and back', () => {
+    useConnectionStore.setState({
+      serverUrl: 'https://other.example',
+      serverAuth: 'none',
+      savedCredentials: {
+        [connectionKey('https://other.example', 'bearer')]: { type: 'bearer', token: 'saved-token' },
+        [connectionKey('https://other.example', 'basic')]: { type: 'basic', username: 'saved-user', password: 'saved-pass' },
+      },
+    })
+    render(<ConnectionDialog />)
+    const method = screen.getByLabelText('Authentication')
+
+    fireEvent.change(method, { target: { value: 'basic' } })
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'typed-user' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'typed-pass' } })
+    fireEvent.change(method, { target: { value: 'bearer' } })
+    fireEvent.change(screen.getByLabelText('Token'), { target: { value: 'typed-token' } })
+    fireEvent.change(method, { target: { value: 'basic' } })
+
+    expect((screen.getByLabelText('Username') as HTMLInputElement).value).toBe('typed-user')
+    expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('typed-pass')
+    fireEvent.change(method, { target: { value: 'bearer' } })
+    expect((screen.getByLabelText('Token') as HTMLInputElement).value).toBe('typed-token')
   })
 
   it('explains a URL without a scheme and will not save it', () => {
@@ -164,6 +245,34 @@ describe('ConnectionDialog OAuth', () => {
 
     expect(screen.getByText('You will be asked to sign in when you connect.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
+  })
+
+  it('names the signed-in account for every server that shares the session, not only the connected one', async () => {
+    const company = getRuntimeConfig().oauthProfiles.find(profile => profile.name === 'company')!
+    const transport = {
+      prepareSignIn: vi.fn(),
+      releaseSignIn: vi.fn(),
+      signIn: vi.fn(async () => ({ accessToken: 'at', accountName: 'Pat Doe' })),
+      refresh: vi.fn(),
+      signOut: vi.fn(async () => ({ revoked: false, endedSession: false })),
+      cancel: vi.fn(),
+    }
+    await openOAuthSession(company, transport)
+    try {
+      useConnectionStore.setState({
+        serverUrl: 'https://server.example/v1',
+        isConnected: true,
+        credentials: { type: 'oauth', profile: 'company' },
+      })
+      render(<ConnectionDialog />)
+      expect(screen.getByText('Signed in as Pat Doe')).toBeTruthy()
+
+      fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://server.example/other' } })
+
+      expect(screen.getByText('Signed in as Pat Doe')).toBeTruthy()
+    } finally {
+      await signOutOAuth(company, {}, transport)
+    }
   })
 
   it('opens the sign-in window during the Save click, before any await, when saving starts a sign-in', () => {

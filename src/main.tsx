@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles/index.css'
-import { useConnectionStore } from './stores/connection'
+import { normalizeServerUrl, useConnectionStore } from './stores/connection'
 import { applyServerFromQuery } from './services/serverFromQuery'
 import { loadRuntimeConfig } from './config/runtimeConfig'
 
@@ -16,7 +16,7 @@ async function init() {
     const store = useConnectionStore.getState()
     if (config.serverUrl) store.setServerUrl(config.serverUrl)
     if (config.recentUrls?.length) {
-      useConnectionStore.setState({ recentUrls: config.recentUrls })
+      useConnectionStore.setState({ recentConnections: config.recentUrls.map(url => ({ url: normalizeServerUrl(url), auth: 'none' as const })) })
     }
   }
 
