@@ -306,7 +306,9 @@ async function fetchSiteConfig(): Promise<Record<string, unknown>> {
   try {
     const response = await fetch('./config.json', { cache: 'no-store' })
     if (!response.ok) return {}
-    const body: unknown = await response.json()
+    const body: unknown = await response.json().catch(() => {
+      console.warn(`[config] ${response.url} is not JSON (${response.headers.get('content-type')}); no sign-in profiles were loaded.`)
+    })
     return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
   } catch {
     return {}
