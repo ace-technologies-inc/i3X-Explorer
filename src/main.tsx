@@ -7,12 +7,6 @@ import { applyServerFromQuery } from './services/serverFromQuery'
 import { loadRuntimeConfig } from './config/runtimeConfig'
 
 async function init() {
-  // nginx serves the app at /explorer too; without the slash, config.json and the OAuth callback resolve outside the app.
-  const base = import.meta.env.BASE_URL
-  if (base.startsWith('/') && window.location.pathname === base.replace(/\/$/, '')) {
-    window.history.replaceState(window.history.state, '', `${base}${window.location.search}${window.location.hash}`)
-  }
-
   // Runtime config lets operators override defaults without rebuilding. The server
   // URL and recent list apply only on a first visit (a returning user's choice wins);
   // OAuth defaults are read on every launch and never persisted.

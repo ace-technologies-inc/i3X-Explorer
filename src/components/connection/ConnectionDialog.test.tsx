@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ConnectionDialog } from './ConnectionDialog'
 import { connectionKey, useConnectionStore } from '../../stores/connection'
-import { getRuntimeConfig, loadRuntimeConfig } from '../../config/runtimeConfig'
+import { getRuntimeConfig, loadRuntimeConfig, SITE_CONFIG_URL } from '../../config/runtimeConfig'
 import { releaseSignInWindow } from '../../auth/popupSignIn'
 import { openOAuthSession, signOutOAuth } from '../../auth/oauthSession'
 
@@ -24,7 +24,7 @@ const profileEnv = {
 
 async function loadProfiles() {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    if (String(input) === './config.json') {
+    if (String(input) === SITE_CONFIG_URL) {
       return new Response(JSON.stringify({ env: profileEnv }), { headers: { 'Content-Type': 'application/json' } })
     }
     throw new Error(`offline: ${String(input)}`)

@@ -14,7 +14,7 @@ const POPUP_FEATURES = 'popup,width=520,height=680'
 
 /** The callback page served beside the app (public/oauth/callback.html). */
 export function defaultRedirectUri(): string {
-  return new URL('oauth/callback.html', document.baseURI).href
+  return new URL(`${import.meta.env.BASE_URL}oauth/callback.html`, document.baseURI).href
 }
 
 let reserved: Window | null = null

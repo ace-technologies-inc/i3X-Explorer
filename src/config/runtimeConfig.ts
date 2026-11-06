@@ -302,9 +302,12 @@ export function getRuntimeConfig(): RuntimeConfig {
   return current
 }
 
+// Relative to the app's base, not the page: the app is also served at /explorer, without the slash.
+export const SITE_CONFIG_URL = `${import.meta.env.BASE_URL}config.json`
+
 async function fetchSiteConfig(): Promise<Record<string, unknown>> {
   try {
-    const response = await fetch('./config.json', { cache: 'no-store' })
+    const response = await fetch(SITE_CONFIG_URL, { cache: 'no-store' })
     if (!response.ok) return {}
     const body: unknown = await response.json().catch(() => {
       console.warn(`[config] ${response.url} is not JSON (${response.headers.get('content-type')}); no sign-in profiles were loaded.`)

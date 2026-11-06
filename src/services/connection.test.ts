@@ -6,7 +6,7 @@ import type { ObjectInstance } from '../api/types'
 import { useConnectionStore } from '../stores/connection'
 import { useExplorerStore } from '../stores/explorer'
 import { connectErrorMessage, performConnect } from './connection'
-import { loadRuntimeConfig } from '../config/runtimeConfig'
+import { loadRuntimeConfig, SITE_CONFIG_URL } from '../config/runtimeConfig'
 
 function jsonResponse(body: unknown): Response {
   const text = JSON.stringify(body)
@@ -154,7 +154,7 @@ describe('performConnect with OAuth', () => {
   function stubServer(sentAuthorization: (string | undefined)[]) {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const target = String(input)
-      if (target === './config.json') {
+      if (target === SITE_CONFIG_URL) {
         return jsonResponse({
           env: {
             I3X_OAUTH_COMPANY_ISSUER: issuer,
@@ -257,7 +257,7 @@ describe('performConnect with OAuth', () => {
     const serve = vi.mocked(fetch).getMockImplementation()!
     vi.mocked(fetch).mockImplementation(async (input, init) => {
       const target = String(input)
-      if (target === './config.json') return serve(input, init)
+      if (target === SITE_CONFIG_URL) return serve(input, init)
       requested.push(target)
       if (target === 'https://server.example/v1/info') {
         return { ...jsonResponse({ specVersion: '1.0' }), redirected: true, url: 'https://elsewhere.example/v1/info' } as Response
@@ -289,7 +289,7 @@ describe('performConnect with OAuth', () => {
       const serve = vi.mocked(fetch).getMockImplementation()!
       vi.mocked(fetch).mockImplementation(async (input, init) => {
         const target = String(input)
-        if (target === './config.json') return serve(input, init)
+        if (target === SITE_CONFIG_URL) return serve(input, init)
         requests.push([target, (init?.headers as Record<string, string> | undefined)?.Authorization])
         if (target === from) return { ...jsonResponse({ specVersion: '1.0' }), redirected: true, url: to } as Response
         return serve(input, init)
