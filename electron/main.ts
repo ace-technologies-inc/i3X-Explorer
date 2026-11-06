@@ -26,15 +26,20 @@ if (process.platform === 'linux') {
 // Set the app name for macOS menu bar (overrides package.json "name")
 app.setName('i3X Explorer')
 
-// IPC handlers for credential encryption via OS keychain
-ipcMain.handle('safe-storage-encrypt', (_event, plaintext: string) => {
-  if (!safeStorage.isEncryptionAvailable()) return null
-  return safeStorage.encryptString(plaintext).toString('base64')
+// IPC handlers for credential encryption via OS keychain.
+// The async safeStorage API: the sync one is deprecated in Electron 45 and removed in 46.
+// Both use the same per-platform key store, so credentials saved by builds that used
+// encryptString() still decrypt here.
+ipcMain.handle('safe-storage-encrypt', async (_event, plaintext: string) => {
+  if (!(await safeStorage.isAsyncEncryptionAvailable())) return null
+  return (await safeStorage.encryptStringAsync(plaintext)).toString('base64')
 })
 
-ipcMain.handle('safe-storage-decrypt', (_event, encrypted: string) => {
-  if (!safeStorage.isEncryptionAvailable()) return null
-  return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+ipcMain.handle('safe-storage-decrypt', async (_event, encrypted: string) => {
+  if (!(await safeStorage.isAsyncEncryptionAvailable())) return null
+  // shouldReEncrypt is not acted on: the renderer re-encrypts on every save.
+  const { result } = await safeStorage.decryptStringAsync(Buffer.from(encrypted, 'base64'))
+  return result
 })
 
 // IPC handler to toggle DevTools (open if closed, close if open)

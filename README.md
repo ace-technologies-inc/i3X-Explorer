@@ -52,7 +52,6 @@ Download the latest release for your platform:
 | macOS (Apple Silicon) | `i3X Explorer-x.x.x-mac-arm64.dmg` |
 | macOS (Intel) | `i3X Explorer-x.x.x-mac-x64.dmg` |
 | Windows (64-bit) | `i3X Explorer-x.x.x-win-x64.exe` |
-| Windows (32-bit) | `i3X Explorer-x.x.x-win-ia32.exe` |
 | Windows (Portable) | `i3X Explorer-x.x.x-portable.exe` |
 | Linux (x64) | `i3X Explorer-x.x.x-linux-x86_64.AppImage` |
 | Linux (ARM64) | `i3X Explorer-x.x.x-linux-arm64.AppImage` |
@@ -122,7 +121,7 @@ npm run build
 
 # Manually Build Platform-specific
 npm run build:mac          # macOS (Intel + Apple Silicon)
-npm run build:win          # Windows (x64, x86, portable), unsigned
+npm run build:win          # Windows (x64 installer + portable), unsigned
 npm run build:linux        # Linux (AppImage x64 + ARM64)
 npm run build:web          # Web (static files → dist-web/)
 npm run build:all          # All platforms

@@ -96,7 +96,7 @@ npm run build:all          # All
 npm run build:mac          # macOS (Intel + Apple Silicon)
 npm run build:mac:x64      # macOS Intel only
 npm run build:mac:arm64    # macOS Apple Silicon only
-npm run build:win          # Windows (x64 + x86 + portable)
+npm run build:win          # Windows (x64 installer + portable)
 npm run build:linux        # Linux (AppImage + tar.gz)
 npm run build:web          # Web (static files → dist-web/, zip → release/{version}/)
 ```
@@ -157,12 +157,19 @@ Full setup walkthrough: see `WINDOWS-SIGNING.md`.
 | Linux | `.AppImage`, `.tar.gz` (x64 & arm64) |
 | Web | `-web.zip` (extract to any static web server) |
 
+### Electron version and supported platforms
+
+The app is on **Electron 45**. Electron supports only its latest three major versions, and every version past that stops getting security fixes; real manufacturing sites run this app, so **stay on a supported major**. Moving from 41 to 45 changed three things for this app:
+- **No 32-bit Windows build.** Electron 44 stopped publishing `win32-ia32` binaries, so the NSIS target is x64 only. The minimum OS is 64-bit Windows 10/11 and **macOS 13** (Electron 44 dropped macOS 12).
+- **`safeStorage` is async.** The sync `encryptString` / `decryptString` / `isEncryptionAvailable` are deprecated in 45 and removed in 46; `electron/main.ts` uses the `*Async` versions, which read credentials the sync API saved.
+- **The Electron binary downloads on first use**, not in `postinstall` (Electron 42+). After `npm ci`, the first `npm run dev` (or `npx electron`) downloads it; electron-builder fetches its own copy for packaging either way.
+
 ### Linux AppImage Compatibility
 
 The Linux build uses a post-pack hook (`scripts/afterPackLinux.cjs`) that wraps the Electron binary with a small shell script. This is necessary because:
 
 - **SUID sandbox**: AppImages mount squashfs as a regular user, so `chrome-sandbox` loses its SUID bit. The wrapper injects `--no-sandbox` so Chromium doesn't abort.
-- **Wayland**: The wrapper sets `ELECTRON_OZONE_PLATFORM_HINT=auto` so Electron uses the native Wayland backend when `WAYLAND_DISPLAY` is present, rather than defaulting to XWayland (which GNOME on Wayland often fails to display).
+- **Wayland**: Electron 38+ runs as a native Wayland app in a Wayland session by default (`--ozone-platform` defaults to `auto`), so the wrapper no longer sets anything for it. (It used to export `ELECTRON_OZONE_PLATFORM_HINT=auto`; Electron 38 removed that variable.) Users can force XWayland with `--ozone-platform=x11`.
 
 **GPU / VM environments**: `electron/main.ts` calls `app.disableHardwareAcceleration()` on Linux to avoid VA-API initialization failures on systems without working GPU drivers (e.g. VMware SVGA II). `ready-to-show` depends on the GPU compositor for first-paint and won't fire when hardware acceleration is disabled, so a `did-finish-load` fallback is used to show the window instead.
 
