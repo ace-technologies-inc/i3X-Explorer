@@ -4,6 +4,7 @@ import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 import { readFileSync } from 'fs'
+import { runtimeConfigFromEnv } from './vite.runtimeConfig'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
@@ -13,6 +14,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    runtimeConfigFromEnv(),
     electron([
       {
         entry: 'electron/main.ts',

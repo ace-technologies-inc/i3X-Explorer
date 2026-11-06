@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "composite": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "strict": true
   },
-  "include": ["vite.config.ts", "vite.web.config.ts", "vitest.config.ts", "electron/**/*.ts"]
+  "include": ["vite.config.ts", "vite.web.config.ts", "vite.runtimeConfig.ts", "vitest.config.ts", "electron/**/*.ts", "src/auth/oauthProtocol.ts", "src/config/oauthEnv.ts"]
 }

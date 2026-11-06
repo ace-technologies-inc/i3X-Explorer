@@ -1,9 +1,13 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
+import type { OAuthSettings } from '../auth/oauthProtocol'
 
 // The compiled-in default server URL. A persisted serverUrl different from this
 // can only have come from an explicit user choice (see the v1 migration below).
 const DEFAULT_SERVER_URL = 'https://api.i3x.dev/v1'
+
+// The recent list earlier versions started with; the demo server is a configured server instead.
+const SEEDED_RECENT_URLS = [DEFAULT_SERVER_URL, 'http://localhost:8080']
 
 // Custom storage that encrypts savedCredentials via Electron's safeStorage
 const encryptedStorage: StateStorage = {
@@ -66,7 +70,14 @@ interface CustomHeaderCredentials {
   headerValue: string
 }
 
-export type Credentials = BasicCredentials | BearerCredentials | CustomHeaderCredentials
+/** Own `settings`, else the named runtime `profile`, else the best runtime profile for the server; read on each connect. */
+export interface OAuthCredentials {
+  type: 'oauth'
+  profile?: string
+  settings?: OAuthSettings
+}
+
+export type Credentials = BasicCredentials | BearerCredentials | CustomHeaderCredentials | OAuthCredentials
 
 interface ConnectionState {
   serverUrl: string
@@ -74,6 +85,10 @@ interface ConnectionState {
   // a ?server= deep link must not override their choice.
   serverUrlUserSet: boolean
   credentials: Credentials | null
+  /** Who an OAuth sign-in authenticated, for display; not persisted. */
+  accountName: string | null
+  /** An interactive OAuth sign-in may be waiting on the person; the toolbar offers to cancel it. */
+  signInPending: boolean
   savedCredentials: Record<string, Credentials>
   isConnected: boolean
   isConnecting: boolean
@@ -91,6 +106,8 @@ interface ConnectionState {
   setServerUrl: (url: string) => void
   setServerUrlUserSet: (value: boolean) => void
   setCredentials: (credentials: Credentials | null) => void
+  setAccountName: (name: string | null) => void
+  setSignInPending: (pending: boolean) => void
   saveCredentialsForUrl: (url: string, credentials: Credentials | null) => void
   getCredentialsForUrl: (url: string) => Credentials | null
   setConnected: (connected: boolean) => void
@@ -98,6 +115,8 @@ interface ConnectionState {
   setError: (error: string | null) => void
   setShowConnectionDialog: (show: boolean) => void
   addRecentUrl: (url: string) => void
+  /** Drops a recent server and forgets its saved credentials. */
+  removeRecentUrl: (url: string) => void
   setIgnoreCertErrors: (ignore: boolean) => void
   setRedirectNotice: (notice: { from: string; to: string } | null) => void
   setUnsupportedServer: (found: string | null) => void
@@ -115,12 +134,14 @@ export const useConnectionStore = create<ConnectionState>()(
       serverUrl: DEFAULT_SERVER_URL,
       serverUrlUserSet: false,
       credentials: null,
+      accountName: null,
+      signInPending: false,
       savedCredentials: {},
       isConnected: false,
       isConnecting: false,
       error: null,
       showConnectionDialog: false,
-      recentUrls: [DEFAULT_SERVER_URL, 'http://localhost:8080'],
+      recentUrls: [],
       ignoreCertErrors: false,
       redirectNotice: null,
       unsupportedServer: null,
@@ -128,6 +149,8 @@ export const useConnectionStore = create<ConnectionState>()(
       setServerUrl: (url) => set({ serverUrl: url }),
       setServerUrlUserSet: (value) => set({ serverUrlUserSet: value }),
       setCredentials: (credentials) => set({ credentials }),
+      setAccountName: (accountName) => set({ accountName }),
+      setSignInPending: (signInPending) => set({ signInPending }),
 
       saveCredentialsForUrl: (url, credentials) => {
         const { savedCredentials } = get()
@@ -159,17 +182,24 @@ export const useConnectionStore = create<ConnectionState>()(
         }
       },
 
+      removeRecentUrl: (url) => {
+        const { recentUrls, savedCredentials } = get()
+        const { [url]: _, ...rest } = savedCredentials
+        set({ recentUrls: recentUrls.filter(recent => recent !== url), savedCredentials: rest })
+      },
+
       disconnect: () => set({
         isConnected: false,
         isConnecting: false,
         error: null,
-        credentials: null
+        credentials: null,
+        accountName: null
       })
     }),
     {
       name: 'i3x-connection',
       storage: createJSONStorage(() => encryptedStorage),
-      version: 1,
+      version: 2,
       // v0 -> v1 added serverUrlUserSet. A persisted serverUrl that isn't the
       // compiled default predates the flag and can only have come from an
       // explicit user choice, so preserve it as user-set; otherwise a ?server=
@@ -179,6 +209,12 @@ export const useConnectionStore = create<ConnectionState>()(
         if (from < 1) {
           state.serverUrlUserSet =
             state.serverUrl !== undefined && state.serverUrl !== DEFAULT_SERVER_URL
+        }
+        // v1 -> v2 stopped seeding the recent list. A seeded entry the person is on, or saved credentials for, stays.
+        if (from < 2 && state.recentUrls) {
+          const kept = (url: string) =>
+            !SEEDED_RECENT_URLS.includes(url) || url === state.serverUrl || !!state.savedCredentials?.[url]
+          state.recentUrls = state.recentUrls.filter(kept)
         }
         return state as PersistedConnectionState
       },

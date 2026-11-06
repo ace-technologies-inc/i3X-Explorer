@@ -178,7 +178,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
             useSubscriptionsStore.getState().setStreaming(subscriptionId, false)
           }
         },
-        client.getCredentials(),
+        client.getAuthProvider(),
         streamConfig.postBody,
         // 501 is permanent; don't burn reconnect attempts on it
         [501]

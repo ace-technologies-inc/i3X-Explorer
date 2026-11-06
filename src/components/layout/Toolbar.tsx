@@ -4,6 +4,7 @@ import { useConnectionStore } from '../../stores/connection'
 import { POLL_OPTIONS, useExplorerStore } from '../../stores/explorer'
 import { useDiffStore } from '../../stores/diff'
 import { performConnect, performDisconnect } from '../../services/connection'
+import { cancelOAuthSignIn } from '../../auth/oauthSession'
 import { clearCatalogCache } from '../../data/catalogData'
 import { setPerfTraceEnabled } from '../../diagnostics/perfTrace'
 import { usePerfTraceEnabled } from '../../diagnostics/PerfProfiler'
@@ -42,6 +43,7 @@ export function Toolbar() {
     serverUrl,
     isConnected,
     isConnecting,
+    signInPending,
     error,
     setShowConnectionDialog,
     redirectNotice,
@@ -52,6 +54,7 @@ export function Toolbar() {
     serverUrl: s.serverUrl,
     isConnected: s.isConnected,
     isConnecting: s.isConnecting,
+    signInPending: s.signInPending,
     error: s.error,
     setShowConnectionDialog: s.setShowConnectionDialog,
     redirectNotice: s.redirectNotice,
@@ -227,13 +230,24 @@ export function Toolbar() {
         </button>
 
         {!isConnected ? (
-          <button
-            onClick={handleConnect}
-            disabled={isConnecting || !serverUrl}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isConnecting ? <><Spinner size={11} /> Connecting…</> : 'Connect'}
-          </button>
+          <>
+            <button
+              onClick={handleConnect}
+              disabled={isConnecting || !serverUrl}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isConnecting ? <><Spinner size={11} /> Connecting…</> : 'Connect'}
+            </button>
+            {isConnecting && signInPending && (
+              <button
+                onClick={() => cancelOAuthSignIn()}
+                title="Stop waiting for the sign-in window"
+                className="px-3 py-1.5 text-xs text-i3x-text-muted rounded border border-i3x-border hover:text-i3x-text hover:border-i3x-primary transition-colors"
+              >
+                Cancel sign-in
+              </button>
+            )}
+          </>
         ) : (
           <button
             onClick={handleDisconnect}

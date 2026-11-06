@@ -1,6 +1,5 @@
 import type { SyncResponseItem } from './types'
-import type { ClientCredentials } from './client'
-import { buildAuthHeaders } from './auth'
+import { CredentialRedirectError, isUnfollowedRedirect, redirectModeFor, type AuthProvider } from './authProvider'
 import { failureMessage, failureStatus, failureText, isFailedEnvelope, subscriptionUpdateItems } from './normalize'
 
 export type SubscriptionCallback = (items: SyncResponseItem[]) => void
@@ -29,7 +28,7 @@ export class SSESubscription {
   // timer would fire, 404, and trigger recovery, resurrecting the subscription.
   private disposed = false
   private url: string
-  private credentials: ClientCredentials | null
+  private auth: AuthProvider | null
   private postBody: object | undefined
   private failFastStatuses: number[]
   private onData: SubscriptionCallback
@@ -38,12 +37,14 @@ export class SSESubscription {
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
   private connected = false
+  // One renewal per stream open, so a provider that keeps handing out refused tokens cannot loop.
+  private authRenewed = false
 
   constructor(
     url: string,
     onData: SubscriptionCallback,
     onError: ErrorCallback,
-    credentials?: ClientCredentials | null,
+    auth?: AuthProvider | null,
     // If provided, the stream is opened with POST + JSON body.
     // If omitted, uses GET.
     postBody?: object,
@@ -58,7 +59,7 @@ export class SSESubscription {
       : url
     this.onData = onData
     this.onError = onError
-    this.credentials = credentials ?? null
+    this.auth = auth ?? null
     this.postBody = postBody
     this.failFastStatuses = failFastStatuses
   }
@@ -84,18 +85,44 @@ export class SSESubscription {
       headers['Content-Type'] = 'application/json'
     }
 
-    Object.assign(headers, buildAuthHeaders(this.credentials))
-
     try {
+      if (this.auth) {
+        let authHeaders: Record<string, string>
+        try {
+          authHeaders = await this.auth.getHeaders()
+        } catch (err) {
+          // The credential cannot be renewed (an expired sign-in); retrying would fail the same way.
+          if (this.disposed || controller !== this.abortController) return
+          this.onError(err instanceof Error ? err : new Error(String(err)))
+          return
+        }
+        Object.assign(headers, authHeaders)
+        if (this.disposed || controller !== this.abortController) return
+      }
+
       const response = await fetch(this.url, {
         method: this.postBody ? 'POST' : 'GET',
         headers,
         body: this.postBody ? JSON.stringify(this.postBody) : undefined,
-        signal: controller.signal
+        signal: controller.signal,
+        redirect: redirectModeFor(this.auth),
       })
+
+      if (this.auth?.permits && isUnfollowedRedirect(response)) {
+        // Following it would forward the sign-in, and retrying is answered the same way.
+        this.onError(new CredentialRedirectError())
+        return
+      }
 
       if (!response.ok) {
         const err = new HttpStatusError(response.status, response.statusText)
+        if (response.status === 401 && this.auth && !this.authRenewed && (await this.auth.handleUnauthorized(headers))) {
+          this.authRenewed = true
+          await response.body?.cancel().catch(() => undefined)
+          if (this.disposed || controller !== this.abortController) return
+          void this.startFetch(controller)
+          return
+        }
         // 404/410 means the subscription is gone, retrying will always fail.
         // failFastStatuses (e.g. 501 = streaming unsupported) are equally permanent.
         if (this.isPermanent(response.status)) {
@@ -132,6 +159,7 @@ export class SSESubscription {
       console.log('SSE connection opened')
       this.connected = true
       this.reconnectAttempts = 0
+      this.authRenewed = false
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -170,6 +198,8 @@ export class SSESubscription {
   }
 
   private isPermanent(status: number): boolean {
+    // A refused credential fails the same way on every retry.
+    if (status === 401 || status === 403) return true
     return status === 404 || status === 410 || this.failFastStatuses.includes(status)
   }
 
@@ -222,6 +252,7 @@ export class SSESubscription {
     }
     this.connected = false
     this.reconnectAttempts = 0
+    this.authRenewed = false
   }
 
   isConnected(): boolean {

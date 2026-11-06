@@ -22,5 +22,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('app-before-quit', listener)
     return () => ipcRenderer.removeListener('app-before-quit', listener)
   },
-  notifyCleanupDone: () => ipcRenderer.send('app-cleanup-done')
+  notifyCleanupDone: () => ipcRenderer.send('app-cleanup-done'),
+  getRuntimeConfig: () => ipcRenderer.invoke('get-runtime-config'),
+  oauthSignIn: (settings) => ipcRenderer.invoke('oauth-sign-in', settings),
+  oauthRefresh: (settings, tokens) => ipcRenderer.invoke('oauth-refresh', settings, tokens),
+  oauthSignOut: (settings, tokens, endSession) => ipcRenderer.invoke('oauth-sign-out', settings, tokens, endSession),
+  oauthCancel: () => ipcRenderer.invoke('oauth-cancel')
 })
