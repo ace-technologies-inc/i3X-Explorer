@@ -12,13 +12,14 @@
 #   AZURE_TRUSTED_SIGNING_ACCOUNT      – Signing account name
 #   AZURE_TRUSTED_SIGNING_PROFILE      – Certificate profile name
 #
-# Signing happens INSIDE electron-builder (win.azureSignOptions, passed below as
-# --config.* overrides), so the app exe is signed before it is packed into the NSIS
-# installer and portable exe, and the uninstaller is signed too. Signing the finished
-# installers afterwards (what this script used to do) leaves the installed
-# "i3X Explorer.exe" unsigned, which Windows 11 Smart App Control blocks outright.
-# electron-builder installs the TrustedSigning PowerShell module on first use and
-# authenticates with the AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET vars.
+# Signing happens INSIDE electron-builder: electron-builder.json points
+# win.signtoolOptions.sign at scripts/winSign.cjs, which runs signtool + the Azure
+# Trusted Signing dlib on every file electron-builder signs, so the app exe is signed
+# before it is packed into the NSIS installer and portable exe, and the uninstaller is
+# signed too. Signing the finished installers afterwards (what this script used to do)
+# leaves the installed "i3X Explorer.exe" unsigned, which Windows 11 Smart App Control
+# blocks outright. scripts/prepare-win-signing.ps1 fetches signtool/dlib and tells the
+# hook where they are.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -153,15 +154,23 @@ if ($LASTEXITCODE -ne 0) { Abort "Vite build failed." }
 
 Copy-Item electron\preload.cjs dist-electron\preload.cjs
 
-$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'    # no local cert search; Azure signs instead
-# publisherName is required by electron-builder's schema but only used to verify
-# auto-updates (this app publishes none); keep it equal to the certificate's CN.
-npx electron-builder --win --publish never `
-    "--config.win.azureSignOptions.publisherName=Ace Technologies, Inc" `
-    "--config.win.azureSignOptions.endpoint=$($env:AZURE_TRUSTED_SIGNING_ENDPOINT)" `
-    "--config.win.azureSignOptions.codeSigningAccountName=$($env:AZURE_TRUSTED_SIGNING_ACCOUNT)" `
-    "--config.win.azureSignOptions.certificateProfileName=$($env:AZURE_TRUSTED_SIGNING_PROFILE)"
-if ($LASTEXITCODE -ne 0) { Abort "electron-builder failed (building or signing)." }
+Write-Header "Preparing signing tools"
+try {
+    . (Join-Path $ScriptDir 'prepare-win-signing.ps1')
+} catch {
+    Abort "Could not prepare signing: $_"
+}
+Write-Ok "signtool + Azure Trusted Signing dlib ready"
+
+Write-Header "Packaging and signing"
+$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'    # no local cert search; winSign.cjs signs instead
+npx electron-builder --win --publish never
+$builderExit = $LASTEXITCODE
+
+# metadata.json names the signing account; don't leave it lying around.
+Remove-Item $env:I3X_SIGN_METADATA -ErrorAction SilentlyContinue
+
+if ($builderExit -ne 0) { Abort "electron-builder failed (building or signing; see the signtool output above)." }
 
 # electron-builder's portable target spawns a child process (7-zip sfx) that may still be
 # writing the file when the main process exits. Give it a moment to finish.

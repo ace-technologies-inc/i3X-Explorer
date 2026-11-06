@@ -60,7 +60,11 @@
         "arch": ["x64"]
       }
     ],
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "signtoolOptions": {
+      "sign": "./scripts/winSign.cjs",
+      "signingHashAlgorithms": ["sha256"]
+    }
   },
   "nsis": {
     "oneClick": false,

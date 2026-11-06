@@ -23,19 +23,21 @@ jobs:
       - name: Build Vite
         run: npm run build:vite
 
-      # Signing happens inside electron-builder (win.azureSignOptions), so the app exe is
-      # signed BEFORE it is packed into the NSIS installer and portable exe, and the
-      # uninstaller is signed too. Signing the finished installers afterwards left the
-      # installed "i3X Explorer.exe" unsigned, which Windows 11 Smart App Control blocks.
-      # publisherName is schema-required but only used for auto-update checks (none here).
+      # Signing happens inside electron-builder: electron-builder.json points
+      # win.signtoolOptions.sign at scripts/winSign.cjs, which signs every file with signtool
+      # + the Azure Trusted Signing dlib, so the app exe is signed BEFORE it is packed into
+      # the NSIS installer and portable exe, and the uninstaller is signed too. Signing the
+      # finished installers afterwards left the installed "i3X Explorer.exe" unsigned, which
+      # Windows 11 Smart App Control blocks. prepare-win-signing.ps1 finds signtool, fetches
+      # the dlib and tells the hook where they are.
       - name: Build and sign Windows installers
         shell: pwsh
-        run: >
+        run: |
+          . ./scripts/prepare-win-signing.ps1
           npx electron-builder --win --publish never
-          "--config.win.azureSignOptions.publisherName=Ace Technologies, Inc"
-          "--config.win.azureSignOptions.endpoint=$env:AZURE_TRUSTED_SIGNING_ENDPOINT"
-          "--config.win.azureSignOptions.codeSigningAccountName=$env:AZURE_TRUSTED_SIGNING_ACCOUNT"
-          "--config.win.azureSignOptions.certificateProfileName=$env:AZURE_TRUSTED_SIGNING_PROFILE"
+          $code = $LASTEXITCODE
+          Remove-Item $env:I3X_SIGN_METADATA -ErrorAction SilentlyContinue
+          exit $code
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
