@@ -22,7 +22,7 @@ nginx serves the built static files and proxies `/api/` requests to your I3X API
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/cesmii/I3X-Explorer.git /path/to/i3X-Explorer
+git clone https://github.com/ace-technologies-inc/I3X-Explorer.git /path/to/i3X-Explorer
 cd /path/to/i3X-Explorer
 ```
 

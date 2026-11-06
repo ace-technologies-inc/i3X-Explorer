@@ -3,7 +3,7 @@ import { SparklesIcon } from '../common/icons'
 
 // Keep in sync with package.json "repository". If this repo has no releases
 // yet, the /releases/latest probe 404s and the check silently no-ops.
-const GITHUB_REPO = 'cesmii/I3X-Explorer'
+const GITHUB_REPO = 'ace-technologies-inc/i3X-Explorer'
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 

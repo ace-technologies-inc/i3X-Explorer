@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.cesmii.i3x-explorer",
+  "appId": "com.acetechnologies.i3x-explorer",
   "productName": "i3X Explorer",
   "copyright": "Copyright © 2026 Ace Technologies Inc",
   "asar": true,
@@ -70,6 +70,7 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "i3X Explorer",
+    "guid": "926c14e7-c7a2-5ab0-b086-4f83407c090b",
     "differentialPackage": false
   },
   "portable": {
