@@ -4,24 +4,74 @@ import { SparklesIcon } from '../common/icons'
 // Keep in sync with package.json "repository". If this repo has no releases
 // yet, the /releases/latest probe 404s and the check silently no-ops.
 const GITHUB_REPO = 'ace-technologies-inc/i3X-Explorer'
-const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+// The list, not /releases/latest: a build only accepts tags of its own shape
+// (see isNewerVersion), so the newest release overall may not be one it can
+// take, and the newest one it can take may sit further down the list.
+const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 
+interface ParsedVersion {
+  parts: [number, number, number]
+  // The "-N" build number, or null for a plain #.#.# version.
+  build: number | null
+}
+
+function parseVersion(v: string): ParsedVersion {
+  const [core, ...rest] = v.trim().replace(/^v/i, '').split('-')
+  const nums = core.split('.').map(part => {
+    const n = parseInt(part, 10)
+    return Number.isNaN(n) ? 0 : n
+  })
+  const suffix = rest.join('-')
+  const digits = parseInt(suffix.replace(/\D+/g, ''), 10)
+  return {
+    parts: [nums[0] ?? 0, nums[1] ?? 0, nums[2] ?? 0],
+    build: suffix ? (Number.isNaN(digits) ? 0 : digits) : null,
+  }
+}
+
+// Numeric order over major.minor.patch, then the build number (absent = 0).
+function compareVersions(a: ParsedVersion, b: ParsedVersion): number {
+  for (let i = 0; i < 3; i++) {
+    if (a.parts[i] !== b.parts[i]) return a.parts[i] - b.parts[i]
+  }
+  return (a.build ?? 0) - (b.build ?? 0)
+}
+
+/**
+ * Whether `candidate` (a release tag) is an update for a build at `current`.
+ *
+ * Two versioning schemes share this check, and each build follows its own:
+ * - A **#.#.#-# build** (tracking the release spec, e.g. 1.2.3-4) takes any
+ *   higher version: 1.2.3-5 and 1.2.4 are updates, 1.2.3 is not (a missing
+ *   build number counts as 0).
+ * - A **#.#.# build** (e.g. 1.2.3) only takes plain #.#.# tags: 1.2.4 is an
+ *   update, any tag with a "-#" suffix is ignored, however high.
+ *
+ * Missing parts count as 0, so "v1.1" reads as 1.1.0.
+ */
 export function isNewerVersion(current: string, candidate: string): boolean {
-  // Strip a leading "v" and any prerelease suffix; missing parts count as 0.
-  // So "v1.1" reads as 1.1.0, and "v1.1.0-rc1" as 1.1.0 (an rc would nag a
-  // 1.0.0 user, fine for a repo that only publishes stable releases; the old
-  // Number() parse turned both cases into NaN and never offered them at all).
-  const parse = (v: string) =>
-    v.replace(/^v/, '').split('-')[0].split('.').map(part => {
-      const n = parseInt(part, 10)
-      return Number.isNaN(n) ? 0 : n
-    })
-  const [cMaj = 0, cMin = 0, cPatch = 0] = parse(current)
-  const [nMaj = 0, nMin = 0, nPatch = 0] = parse(candidate)
-  if (nMaj !== cMaj) return nMaj > cMaj
-  if (nMin !== cMin) return nMin > cMin
-  return nPatch > cPatch
+  const c = parseVersion(current)
+  const n = parseVersion(candidate)
+  if (c.build === null && n.build !== null) return false
+  return compareVersions(n, c) > 0
+}
+
+interface GitHubRelease {
+  tag_name?: string
+  draft?: boolean
+  prerelease?: boolean
+}
+
+/** The highest published release tag that is an update for `current`, if any. */
+export function pickUpdate(current: string, releases: GitHubRelease[]): string | null {
+  let best: string | null = null
+  for (const r of releases) {
+    const tag = r.tag_name
+    if (!tag || r.draft || r.prerelease || !isNewerVersion(current, tag)) continue
+    if (best === null || compareVersions(parseVersion(tag), parseVersion(best)) > 0) best = tag
+  }
+  return best
 }
 
 export function UpdateChecker() {
@@ -31,12 +81,12 @@ export function UpdateChecker() {
     fetch(GITHUB_API_URL)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        const tag = data?.tag_name as string | undefined
+        const tag = Array.isArray(data) ? pickUpdate(__APP_VERSION__, data) : null
         if (!tag) return
         // A dismissed version stays dismissed across launches; a newer
         // release than the dismissed one nags again.
         if (localStorage.getItem('i3x-update-dismissed') === tag) return
-        if (isNewerVersion(__APP_VERSION__, tag)) setLatestVersion(tag)
+        setLatestVersion(tag)
       })
       .catch(() => {})
   }, [])
