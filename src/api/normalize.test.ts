@@ -11,6 +11,7 @@ import {
   readInfoResponse,
   singleBulkResult,
   subscriptionUpdateItems,
+  streamFrameUpdates,
   AuthRequiredError,
   UnsupportedServerError,
 } from './normalize'
@@ -80,6 +81,41 @@ describe('subscriptionUpdateItems', () => {
       ['line', 1],
       ['line:count', 8],
     ])
+  })
+})
+
+describe('streamFrameUpdates', () => {
+  it('maps each frame shape a server may send to the same per-element items', () => {
+    const vqt = { value: 1, quality: 'Good', timestamp: '2026-10-12T13:00:00Z' }
+    const item = { elementId: 'pump', ...vqt }
+    expect(streamFrameUpdates([{ sequenceNumber: 12, updates: [{ elementId: 'pump', ...vqt }] }]))
+      .toEqual([item])
+    expect(streamFrameUpdates([{ elementId: 'pump', ...vqt }])).toEqual([item])
+    expect(streamFrameUpdates([{ pump: { data: [vqt] } }])).toEqual([item])
+  })
+
+  it('reads the nested Data.Value form of a keyed payload', () => {
+    expect(streamFrameUpdates([
+      { pump: { data: [{ value: { Data: { Value: 2, Quality: 'Bad', Timestamp: '2026-10-12T14:00:00Z' } } }] } },
+    ])).toEqual([
+      { elementId: 'pump', value: 2, quality: 'Bad', timestamp: '2026-10-12T14:00:00Z' },
+    ])
+  })
+
+  it('carries a batch frame through the composition unfolding', () => {
+    expect(streamFrameUpdates([
+      { sequenceNumber: 1, updates: [{ elementId: 'line', value: 1, components: { 'line:count': { value: 7 } } }] },
+    ])).toEqual([
+      { elementId: 'line', value: 1, quality: null, timestamp: null },
+      { elementId: 'line:count', value: 7, quality: null, timestamp: null },
+    ])
+  })
+
+  it('maps nothing for a frame with no recognisable update', () => {
+    expect(streamFrameUpdates([{ sequenceNumber: 1 }])).toEqual([])
+    expect(streamFrameUpdates([{ pump: { data: [] } }])).toEqual([])
+    expect(streamFrameUpdates('not an object')).toEqual([])
+    expect(streamFrameUpdates(undefined)).toEqual([])
   })
 })
 
