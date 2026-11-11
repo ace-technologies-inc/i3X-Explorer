@@ -431,18 +431,27 @@ The 1.0 spec allows a request to succeed while individual elements fail: each `B
 - **The SSE stream** treats a 2xx JSON reply as the server's answer, not a dropped connection: a failure with status 404/410 (or a fail-fast status) recovers like the real status, other statuses retry, and a non-failure JSON body or a failure without a status fails fast to `onError`
 
 ### SSE vs Polling
-- **SSE (QoS0)** is the default, real-time streaming via `GET /subscriptions/{id}/stream`
-- **Polling (QoS2)** available as fallback, uses `POST /subscriptions/{id}/sync`
-- Both use the same keyed response format
+- **SSE (QoS0)** is the default, real-time streaming via `POST /subscriptions/stream` (`clientId` and `subscriptionId` in the body)
+- **Polling (QoS2)** available as fallback, uses `POST /subscriptions/sync`
+- Both map the same frames through `streamFrameUpdates` (`src/api/normalize.ts`), so the two transports cannot disagree about what a frame means
 
 ### SSE/Sync Response Format
-Both SSE and sync endpoints return arrays of keyed objects:
+Both transports read an array of frames per `data:` message, and `streamFrameUpdates` maps three
+shapes per frame so a server may send whichever it already produces:
 ```
-data: [{"elementId": {"data": [{"value": 123, "quality": "GOOD", "timestamp": "..."}]}}]
+# batch: the 1.0 shape; its sequenceNumber drives the next /sync request
+data: [{"sequenceNumber": 12, "updates": [{"elementId": "pump", "value": 123, "quality": "GOOD", "timestamp": "..."}]}]
 
-data: [{"elementId": {"data": [{"value": 456, "quality": "GOOD", "timestamp": "..."}]}}]
+# flat: one element per entry
+data: [{"elementId": "pump", "value": 456, "quality": "GOOD", "timestamp": "..."}]
+
+# keyed: each elementId maps to its data list
+data: [{"pump": {"data": [{"value": 789, "quality": "GOOD", "timestamp": "..."}]}}]
 
 ```
+A composition's component updates arrive either as their own entries or inside the root update's
+`components` map; `subscriptionUpdateItems` flattens both to per-element items. A frame that maps
+to nothing logs `[i3x] SSE frame carried no updates` instead of being dropped silently.
 SSE format requirements:
 1. `data: ` prefix
 2. Two newlines (`\n\n`) after each message

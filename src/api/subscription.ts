@@ -1,6 +1,6 @@
 import type { SyncResponseItem } from './types'
 import { CredentialRedirectError, isUnfollowedRedirect, redirectModeFor, type AuthProvider } from './authProvider'
-import { failureMessage, failureStatus, failureText, isFailedEnvelope, subscriptionUpdateItems } from './normalize'
+import { failureMessage, failureStatus, failureText, isFailedEnvelope, streamFrameUpdates } from './normalize'
 
 export type SubscriptionCallback = (items: SyncResponseItem[]) => void
 export type ErrorCallback = (error: Error) => void
@@ -204,21 +204,22 @@ export class SSESubscription {
   }
 
   private processMessage(dataStr: string): void {
+    let frame: unknown
     try {
-      const rawData = JSON.parse(dataStr) as Array<Record<string, unknown>>
-      const items: SyncResponseItem[] = []
-      for (const entry of rawData) {
-        if (Array.isArray(entry.updates)) {
-          // Batch format: {sequenceNumber, updates: [{elementId, value, quality, timestamp}]}
-          items.push(...subscriptionUpdateItems(entry.updates))
-        }
-      }
-      if (items.length > 0) {
-        this.onData(items)
-      }
+      frame = JSON.parse(dataStr)
     } catch (err) {
       console.error('Failed to parse SSE data:', err)
+      return
     }
+    const items = streamFrameUpdates(frame)
+    if (items.length === 0) {
+      // The frame parsed but maps to no update: this server sends a shape the client does not
+      // read. Saying nothing here is what made the 1.0 → 1.1 SSE regression invisible from
+      // inside the app, so a frame is only ever dropped out loud.
+      console.warn(`[i3x] SSE frame carried no updates: ${dataStr.slice(0, 160)}`)
+      return
+    }
+    this.onData(items)
   }
 
   private handleDisconnect(controller: AbortController): void {
