@@ -46,59 +46,23 @@ export function subscriptionUpdateItems(updates: unknown[]): SyncResponseItem[] 
 }
 
 /**
- * One reading as a keyed payload entry carries it: the plain {value, quality, timestamp} form,
- * or the nested {value: {Data: {Value, Quality, Timestamp}}} form some servers use.
- */
-function keyedReading(
-  payload: unknown
-): { value: unknown; quality: string | null; timestamp: string | null } | undefined {
-  if (!isRecord(payload) || !Array.isArray(payload.data)) return undefined
-  const first = payload.data[0]
-  if (!isRecord(first)) return undefined
-  const outer = isRecord(first.value) ? first.value : undefined
-  const nested = outer && isRecord(outer.Data) ? outer.Data as Record<string, unknown> : undefined
-  if (nested) {
-    return {
-      value: nested.Value,
-      quality: (nested.Quality as string | null | undefined) ?? null,
-      timestamp: (nested.Timestamp as string | null | undefined) ?? null,
-    }
-  }
-  return {
-    value: first.value,
-    quality: (first.quality as string | null | undefined) ?? null,
-    timestamp: (first.timestamp as string | null | undefined) ?? null,
-  }
-}
-
-/**
- * Every update one stream or sync frame carries, across the payload shapes servers send:
- * - batch: [{sequenceNumber, updates: [{elementId, value, quality, timestamp}]}]
- * - flat:  [{elementId, value, quality, timestamp}]
- * - keyed: [{elementId: {data: [{value, quality, timestamp}]}}] (the shape CLAUDE.md documents)
- * A composition's component updates flatten through subscriptionUpdateItems whichever shape
- * they arrive in, so both transports report the same per-element items.
+ * Every update one stream or sync frame carries, in the two i3X 1.0 shapes:
+ * - flat:  [{elementId, value, quality, timestamp}], what `/subscriptions/stream` sends
+ * - batch: [{sequenceNumber, updates: [...flat]}], what `/subscriptions/sync` answers
+ * Both may appear in one frame. Every update in the frame goes through one
+ * subscriptionUpdateItems call, so a component that arrives on its own and inside its root's
+ * `components` map is reported once, as itself, wherever in the frame the two sit.
  * An empty result means the frame carried nothing this client maps, and the caller must report
  * it: a client that ignores a whole server silently writes a bug report nobody can read.
  */
 export function streamFrameUpdates(frame: unknown): SyncResponseItem[] {
-  const items: SyncResponseItem[] = []
+  const updates: unknown[] = []
   for (const entry of Array.isArray(frame) ? frame : [frame]) {
     if (!isRecord(entry)) continue
-    if (Array.isArray(entry.updates)) {
-      items.push(...subscriptionUpdateItems(entry.updates))
-      continue
-    }
-    if (typeof entry.elementId === 'string') {
-      items.push(...subscriptionUpdateItems([entry]))
-      continue
-    }
-    for (const [elementId, payload] of Object.entries(entry)) {
-      const reading = keyedReading(payload)
-      if (reading) items.push({ elementId, ...reading })
-    }
+    if (Array.isArray(entry.updates)) updates.push(...entry.updates)
+    else updates.push(entry)
   }
-  return items
+  return subscriptionUpdateItems(updates)
 }
 
 /** Unwraps the { success, result } envelope for non-bulk responses. */

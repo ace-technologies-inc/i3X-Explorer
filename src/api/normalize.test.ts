@@ -85,21 +85,13 @@ describe('subscriptionUpdateItems', () => {
 })
 
 describe('streamFrameUpdates', () => {
-  it('maps each frame shape a server may send to the same per-element items', () => {
-    const vqt = { value: 1, quality: 'Good', timestamp: '2026-10-12T13:00:00Z' }
-    const item = { elementId: 'pump', ...vqt }
+  const vqt = { value: 1, quality: 'Good', timestamp: '2026-10-12T13:00:00Z' }
+  const item = { elementId: 'pump', ...vqt }
+
+  it('maps the flat stream shape and the batch sync shape to the same per-element items', () => {
+    expect(streamFrameUpdates([{ elementId: 'pump', ...vqt }])).toEqual([item])
     expect(streamFrameUpdates([{ sequenceNumber: 12, updates: [{ elementId: 'pump', ...vqt }] }]))
       .toEqual([item])
-    expect(streamFrameUpdates([{ elementId: 'pump', ...vqt }])).toEqual([item])
-    expect(streamFrameUpdates([{ pump: { data: [vqt] } }])).toEqual([item])
-  })
-
-  it('reads the nested Data.Value form of a keyed payload', () => {
-    expect(streamFrameUpdates([
-      { pump: { data: [{ value: { Data: { Value: 2, Quality: 'Bad', Timestamp: '2026-10-12T14:00:00Z' } } }] } },
-    ])).toEqual([
-      { elementId: 'pump', value: 2, quality: 'Bad', timestamp: '2026-10-12T14:00:00Z' },
-    ])
   })
 
   it('carries a batch frame through the composition unfolding', () => {
@@ -111,9 +103,21 @@ describe('streamFrameUpdates', () => {
     ])
   })
 
+  it('reports a component once when a flat frame also sends it on its own', () => {
+    expect(streamFrameUpdates([
+      { elementId: 'line', value: 1, components: { 'line:count': { value: 7 } } },
+      { elementId: 'line:count', value: 8 },
+    ])).toEqual([
+      { elementId: 'line', value: 1, quality: null, timestamp: null },
+      { elementId: 'line:count', value: 8, quality: null, timestamp: null },
+    ])
+  })
+
   it('maps nothing for a frame with no recognisable update', () => {
     expect(streamFrameUpdates([{ sequenceNumber: 1 }])).toEqual([])
-    expect(streamFrameUpdates([{ pump: { data: [] } }])).toEqual([])
+    expect(streamFrameUpdates([])).toEqual([])
+    // The pre-1.0 keyed shape is not an i3X 1.0 frame.
+    expect(streamFrameUpdates([{ pump: { data: [vqt] } }])).toEqual([])
     expect(streamFrameUpdates('not an object')).toEqual([])
     expect(streamFrameUpdates(undefined)).toEqual([])
   })

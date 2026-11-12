@@ -224,7 +224,6 @@ describe('SSESubscription', () => {
   it.each([
     ['batch', `data: [{"sequenceNumber": 1, "updates": [${vqt}]}]\n\n`],
     ['flat', `data: [${vqt}]\n\n`],
-    ['keyed', `data: [{"pump": {"data": [${vqt}]}}]\n\n`],
   ])('delivers a %s-shaped frame to onData', async (_shape, frame) => {
     vi.stubGlobal('fetch', vi.fn(async () => streamResponse(frame)))
     const onData = vi.fn()
@@ -237,8 +236,9 @@ describe('SSESubscription', () => {
     sub.disconnect()
   })
 
-  it('reports a frame that maps to no update instead of dropping it silently', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse('data: [{"sequenceNumber": 1}]\n\n')))
+  it('reports frames that map to no update once per connection, and ignores empty ones', async () => {
+    const unmapped = 'data: [{"pump": {"data": []}}]\n\n'
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse('data: []\n\n', unmapped, unmapped)))
     const onData = vi.fn()
     const sub = new SSESubscription('http://server/stream', onData, vi.fn())
 
@@ -246,6 +246,7 @@ describe('SSESubscription', () => {
     await flushMicrotasks(30)
 
     expect(onData).not.toHaveBeenCalled()
+    expect(console.warn).toHaveBeenCalledTimes(1)
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('carried no updates'))
     sub.disconnect()
   })

@@ -268,11 +268,6 @@ export const useSubscriptionsStore = create<SubscriptionsState>((set, get) => ({
       const previous = updatedLive.get(value.elementId)
       // A delayed sample older than the shown reading counts as delivery activity, not a new value.
       if (previous && isOlderReading(value.timestamp, previous.timestamp)) {
-        // Keeping a *different* value is what users read as "updates never arrive", so name that
-        // case instead of only counting deliveries: the shown reading carries a newer source time.
-        if (diffValues(previous.value, value.value).length > 0) {
-          console.warn(`[i3x] kept ${value.elementId}: source ${value.timestamp} is older than ${previous.timestamp}`)
-        }
         updatedLive.set(value.elementId, { ...previous, receivedAt: now, updateCount: previous.updateCount + 1 })
         continue
       }

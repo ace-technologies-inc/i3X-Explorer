@@ -436,22 +436,24 @@ The 1.0 spec allows a request to succeed while individual elements fail: each `B
 - Both map the same frames through `streamFrameUpdates` (`src/api/normalize.ts`), so the two transports cannot disagree about what a frame means
 
 ### SSE/Sync Response Format
-Both transports read an array of frames per `data:` message, and `streamFrameUpdates` maps three
-shapes per frame so a server may send whichever it already produces:
+Each `data:` message (and each `/sync` result) is a JSON array, in one of the two i3X 1.0 shapes
+from the Implementation Guide:
 ```
-# batch: the 1.0 shape; its sequenceNumber drives the next /sync request
-data: [{"sequenceNumber": 12, "updates": [{"elementId": "pump", "value": 123, "quality": "GOOD", "timestamp": "..."}]}]
+# flat: what /subscriptions/stream sends, one update per entry
+data: [{"elementId": "pump", "value": 456, "quality": "Good", "timestamp": "..."}]
 
-# flat: one element per entry
-data: [{"elementId": "pump", "value": 456, "quality": "GOOD", "timestamp": "..."}]
-
-# keyed: each elementId maps to its data list
-data: [{"pump": {"data": [{"value": 789, "quality": "GOOD", "timestamp": "..."}]}}]
+# batch: what /subscriptions/sync answers; the highest sequenceNumber is the next lastSequenceNumber
+[{"sequenceNumber": 12, "updates": [{"elementId": "pump", "value": 123, "quality": "Good", "timestamp": "..."}]}]
 
 ```
+`streamFrameUpdates` reads either on either transport. In 1.1.0-0 and 1.1.0-1 the stream read only the batch
+shape, so every frame from a spec-compliant server was parsed and silently discarded (polling kept
+working): that is why a frame that maps to nothing now logs `[i3x] SSE frame carried no updates`,
+once per connection (an empty `[]` is not reported). The pre-1.0 keyed shape
+(`{"<elementId>": {"data": [...]}}`) is deliberately not read: those servers are refused at connect.
 A composition's component updates arrive either as their own entries or inside the root update's
-`components` map; `subscriptionUpdateItems` flattens both to per-element items. A frame that maps
-to nothing logs `[i3x] SSE frame carried no updates` instead of being dropped silently.
+`components` map; `subscriptionUpdateItems` flattens the whole frame in one pass, so a component
+sent both ways is reported once, as itself.
 SSE format requirements:
 1. `data: ` prefix
 2. Two newlines (`\n\n`) after each message

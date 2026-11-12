@@ -39,6 +39,9 @@ export class SSESubscription {
   private connected = false
   // One renewal per stream open, so a provider that keeps handing out refused tokens cannot loop.
   private authRenewed = false
+  // An unmapped frame is reported once per connection: a server sending a shape this client
+  // can't read sends it on every frame, and one line says as much as a flooded console.
+  private reportedUnmapped = false
 
   constructor(
     url: string,
@@ -160,6 +163,7 @@ export class SSESubscription {
       this.connected = true
       this.reconnectAttempts = 0
       this.authRenewed = false
+      this.reportedUnmapped = false
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -213,10 +217,13 @@ export class SSESubscription {
     }
     const items = streamFrameUpdates(frame)
     if (items.length === 0) {
-      // The frame parsed but maps to no update: this server sends a shape the client does not
-      // read. Saying nothing here is what made the 1.0 → 1.1 SSE regression invisible from
-      // inside the app, so a frame is only ever dropped out loud.
-      console.warn(`[i3x] SSE frame carried no updates: ${dataStr.slice(0, 160)}`)
+      // An empty array is a frame with nothing in it. Anything else parsed but maps to no update:
+      // this server sends a shape the client does not read. Saying nothing here is what made the
+      // 1.0 → 1.1 SSE regression invisible from inside the app, so it is reported, once.
+      if (!(Array.isArray(frame) && frame.length === 0) && !this.reportedUnmapped) {
+        this.reportedUnmapped = true
+        console.warn(`[i3x] SSE frame carried no updates (reported once per connection): ${dataStr.slice(0, 160)}`)
+      }
       return
     }
     this.onData(items)

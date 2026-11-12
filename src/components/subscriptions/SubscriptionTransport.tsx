@@ -94,22 +94,15 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
     // Data flowing is the strongest health signal, refund the recovery budget.
     recoveryRef.current.attempts = 0
     const { subscriptions, updateLiveValues } = useSubscriptionsStore.getState()
-    const admitted = admittedDeliveries(subscriptions.get(subscriptionId), items)
-    if (items.length > 0 && admitted.length === 0) {
-      // The transport delivered mapped updates and the store refused every one: the subscription
-      // id, its isStreaming flag, or its element list no longer matches what is being sent.
-      console.warn(
-        `[i3x] dropped ${items.length} delivered item(s) on subscription ${subscriptionId}`,
-        items.map(item => item.elementId)
-      )
-    }
-    updateLiveValues(admitted.map(item => ({
-      elementId: item.elementId,
-      displayName: item.elementId,
-      value: item.value,
-      timestamp: item.timestamp,
-      quality: item.quality,
-    })))
+    updateLiveValues(
+      admittedDeliveries(subscriptions.get(subscriptionId), items).map(item => ({
+        elementId: item.elementId,
+        displayName: item.elementId,
+        value: item.value,
+        timestamp: item.timestamp,
+        quality: item.quality,
+      }))
+    )
   }, [])
 
   // Forward declaration: recovery restarts the stream, and the stream's error
