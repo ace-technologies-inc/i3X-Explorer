@@ -30,7 +30,7 @@ import {
   normalizeV1Object,
   readInfoResponse,
   singleBulkResult,
-  subscriptionUpdateItems,
+  streamFrameUpdates,
   unwrapV1Envelope,
   AuthRequiredError,
   UnsupportedServerError,
@@ -858,15 +858,13 @@ export class I3XClient {
 
     const items: SyncResponseItem[] = []
     for (const entry of raw ?? []) {
-      if (Array.isArray(entry.updates)) {
-        // Batch format: {sequenceNumber, updates: [{elementId, value, quality, timestamp}]}
-        const batchSeq = entry.sequenceNumber as number | undefined
-        if (typeof batchSeq === 'number') {
-          const current = this.syncSequenceNumbers.get(subscriptionId) ?? -1
-          if (batchSeq > current) this.syncSequenceNumbers.set(subscriptionId, batchSeq)
-        }
-        items.push(...subscriptionUpdateItems(entry.updates))
+      // A batch (or flat) entry names the sequence it delivered; the next /sync asks for that.
+      const seq = entry.sequenceNumber
+      if (typeof seq === 'number') {
+        const current = this.syncSequenceNumbers.get(subscriptionId) ?? -1
+        if (seq > current) this.syncSequenceNumbers.set(subscriptionId, seq)
       }
+      items.push(...streamFrameUpdates(entry))
     }
     return items
   }

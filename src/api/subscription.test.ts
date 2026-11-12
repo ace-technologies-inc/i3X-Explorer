@@ -23,6 +23,25 @@ function endedStreamResponse() {
   } as unknown as Response
 }
 
+// A 200 event-stream response carrying the given `data:` frames, then ending.
+function streamResponse(...frames: string[]) {
+  const chunks = frames.map(frame => new TextEncoder().encode(frame))
+  let next = 0
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+    body: {
+      getReader: () => ({
+        read: async () => next < chunks.length
+          ? { done: false as const, value: chunks[next++] }
+          : { done: true as const, value: undefined },
+      }),
+    },
+  } as unknown as Response
+}
+
 function errorResponse(status: number, statusText: string) {
   return { ok: false, status, statusText, body: null } as unknown as Response
 }
@@ -32,6 +51,7 @@ describe('SSESubscription', () => {
     vi.useFakeTimers()
     vi.spyOn(console, 'log').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -196,6 +216,38 @@ describe('SSESubscription', () => {
     expect((onError.mock.calls[0][0] as HttpStatusError).status).toBe(status)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(fetchStub).toHaveBeenCalledTimes(1)
+  })
+
+  const delivered = { elementId: 'pump', value: 1, quality: 'GOOD', timestamp: '2026-11-11T12:00:00Z' }
+  const vqt = JSON.stringify(delivered)
+
+  it.each([
+    ['batch', `data: [{"sequenceNumber": 1, "updates": [${vqt}]}]\n\n`],
+    ['flat', `data: [${vqt}]\n\n`],
+    ['keyed', `data: [{"pump": {"data": [${vqt}]}}]\n\n`],
+  ])('delivers a %s-shaped frame to onData', async (_shape, frame) => {
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse(frame)))
+    const onData = vi.fn()
+    const sub = new SSESubscription('http://server/stream', onData, vi.fn())
+
+    sub.connect()
+    await flushMicrotasks(30)
+
+    expect(onData).toHaveBeenCalledWith([delivered])
+    sub.disconnect()
+  })
+
+  it('reports a frame that maps to no update instead of dropping it silently', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse('data: [{"sequenceNumber": 1}]\n\n')))
+    const onData = vi.fn()
+    const sub = new SSESubscription('http://server/stream', onData, vi.fn())
+
+    sub.connect()
+    await flushMicrotasks(30)
+
+    expect(onData).not.toHaveBeenCalled()
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('carried no updates'))
+    sub.disconnect()
   })
 })
 
