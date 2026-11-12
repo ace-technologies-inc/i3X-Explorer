@@ -10,8 +10,17 @@ vi.mock('../common/I3xLoader', () => ({ I3xLoader: () => null }))
 let restorePane: () => void
 beforeAll(() => {
   restorePane = installFixedPane()
+  // The overview hint formats its count with the runtime's default locale, which follows the
+  // machine's (3.001 under de-DE). Pin it so the assertion below holds on any machine.
+  const toLocaleString = Number.prototype.toLocaleString
+  vi.spyOn(Number.prototype, 'toLocaleString').mockImplementation(function (this: number, locales, options) {
+    return toLocaleString.call(this, locales ?? 'en-US', options)
+  })
 })
-afterAll(() => restorePane())
+afterAll(() => {
+  restorePane()
+  vi.restoreAllMocks()
+})
 afterEach(cleanup)
 
 function draw({ root, graph }: ReturnType<typeof fanGraph>) {
