@@ -4,7 +4,9 @@
 
 The official cross-platform desktop application for browsing and monitoring [I3X](https://www.i3x.dev) (Industrial Information Interface eXchange) API servers. Similar to [MQTT Explorer](https://mqtt-explorer.com/) but for the [I3X protocol](https://www.github.com/cesmii/i3x).
 
-![i3X Explorer](website/icon-64.png)
+<img src="public/icon-512.png" alt="i3X Explorer" width="64">
+
+Product page: https://www.acetechnologies.net/i3x/ (source lives in the `ace-technologies-net` repo under `i3x/`).
 
 ## Features
 

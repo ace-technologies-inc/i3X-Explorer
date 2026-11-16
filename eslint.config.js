@@ -9,7 +9,6 @@ export default tseslint.config(
       'dist-web/**',
       'release/**',
       'node_modules/**',
-      'website/**',
       'scripts/**',
     ],
   },
