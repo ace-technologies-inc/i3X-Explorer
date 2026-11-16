@@ -70,10 +70,22 @@ describe('navigation history', () => {
     expect(state().detailTab).toBe('subtree')
   })
 
+  it('keeps the tab when selecting a different element', () => {
+    state().selectItem(item('pump'))
+    state().setDetailTab('relationships')
+    state().selectItem(item('valve'))
+    expect(state().detailTab).toBe('relationships')
+
+    // Through Home and back, too.
+    state().selectItem(null)
+    state().selectItem(item('motor'))
+    expect(state().detailTab).toBe('relationships')
+  })
+
   it('returns to the tab it left, not to Overview', () => {
     state().selectItem(item('pump'))
     state().setDetailTab('subtree')
-    state().selectItem(item('valve'))
+    state().selectItem(item('valve'), 'overview')
 
     expect(state().detailTab).toBe('overview')
 

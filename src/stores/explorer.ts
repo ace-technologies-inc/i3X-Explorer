@@ -694,9 +694,11 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const { history, historyIndex } = get()
     const current = history[historyIndex] ?? HOME_ENTRY
     const sameItem = item === null ? current.item === null : current.item?.id === item.id
-    // Re-selecting the element you're already on keeps the tab you're reading,
-    // so clicking its tree row again doesn't kick you back to Overview.
-    const nextTab = tab ?? (sameItem ? current.tab : 'overview')
+    // The tab is sticky: selecting another element (or re-selecting this one)
+    // keeps the tab you're reading, so stepping through elements on the
+    // Relationships tab stays on Relationships. Only a deep-link names a tab.
+    // Home, namespace and type stops carry the tab through unchanged.
+    const nextTab = tab ?? current.tab
     // Re-selecting the current stop must not add a second entry, but still
     // refreshes selectedItem with the newer data. Leaving a full-panel page is
     // a navigation even when the selection underneath is unchanged.
