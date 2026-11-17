@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import {
   admittedDeliveries,
   groupByDepth,
-  monitoredDepthOf,
   useSubscriptionsStore,
 } from '../../stores/subscriptions'
 import { bulkRejection, type BulkOutcome } from '../../api/normalize'
@@ -221,7 +220,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
     const client = getClient()
     const sub = useSubscriptionsStore.getState().subscriptions.get(subscriptionId)
     if (!client || !sub) return
-    const outcome = await client.unregisterMonitoredItems(subscriptionId, [elementId], monitoredDepthOf(sub, elementId))
+    const outcome = await client.unregisterMonitoredItems(subscriptionId, [elementId])
     const rejection = bulkRejection(outcome)
     if (rejection) throw rejection
     useSubscriptionsStore.getState().setItemStopped(subscriptionId, elementId, true)
@@ -246,7 +245,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
     const sub = useSubscriptionsStore.getState().subscriptions.get(subscriptionId)
     if (!client || !sub) return
     if (!sub.stoppedItems?.includes(elementId)) {
-      const outcome = await client.unregisterMonitoredItems(subscriptionId, [elementId], monitoredDepthOf(sub, elementId))
+      const outcome = await client.unregisterMonitoredItems(subscriptionId, [elementId])
       const rejection = bulkRejection(outcome)
       if (rejection) throw rejection
     }

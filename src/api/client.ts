@@ -829,16 +829,13 @@ export class I3XClient {
     )
   }
 
-  /** `maxDepth` repeats the registration depth, so a composition root stops collecting its components too. */
-  async unregisterMonitoredItems(
-    subscriptionId: string,
-    elementIds: string[],
-    maxDepth = 1
-  ): Promise<BulkOutcome> {
+  /** The unregister body carries only clientId/subscriptionId/elementIds; the server rejects
+   * unknown fields. The registration depth stays local (stores/subscriptions.ts) for re-registration. */
+  async unregisterMonitoredItems(subscriptionId: string, elementIds: string[]): Promise<BulkOutcome> {
     const clientId = this.clientIds.get(subscriptionId)
     return bulkOutcome(
       elementIds,
-      await this.requestEnvelope('POST', '/subscriptions/unregister', { clientId, subscriptionId, elementIds, maxDepth })
+      await this.requestEnvelope('POST', '/subscriptions/unregister', { clientId, subscriptionId, elementIds })
     )
   }
 
