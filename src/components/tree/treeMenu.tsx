@@ -8,8 +8,10 @@ import type { Namespace, ObjectType, ObjectInstance, RelationshipType } from '..
 import type { MenuEntry } from '../common/ContextMenu'
 import { copyJson, copyText, copyTextFrom } from '../common/clipboard'
 import { catalogObjectsJson, catalogSubtreeJson, catalogValueJson } from '../../data/catalogData'
+import { canLinkElements, copyElementLink } from '../../services/elementLink'
 import {
   CopyIcon,
+  LinkIcon,
   TargetIcon,
   HierarchyIcon,
   ClockIcon,
@@ -180,6 +182,11 @@ function objectEntries(row: NodeRow, revealInHierarchy: (elementId: string) => v
     { kind: 'separator' },
     { kind: 'action', label: 'Copy name', icon: <CopyIcon size={ICON} />, onSelect: () => copyText(getObjectLabel(obj)) },
     { kind: 'action', label: 'Copy element ID', icon: <CopyIcon size={ICON} />, onSelect: () => copyText(obj.elementId) },
+  )
+  if (canLinkElements()) {
+    entries.push({ kind: 'action', label: 'Copy link', icon: <LinkIcon size={ICON} />, onSelect: () => copyElementLink(obj.elementId) })
+  }
+  entries.push(
     { kind: 'action', label: 'Copy object JSON', icon: <CopyIcon size={ICON} />, onSelect: () => copyTextFrom(catalogValueJson(obj)) },
   )
   if (descendants > 0) {

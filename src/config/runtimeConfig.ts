@@ -36,6 +36,8 @@ export interface RuntimeConfig {
   recentUrls?: string[]
   /** Servers to offer as configured connections; absent means DEFAULT_SERVERS. */
   servers?: ServerEntry[]
+  /** The hosted web explorer "Copy link" links to from the desktop app, which has no address of its own. */
+  explorerUrl?: string
   oauthProfiles: OAuthProfile[]
 }
 
@@ -224,6 +226,12 @@ export function parseRuntimeConfig(raw: unknown): ParsedRuntimeConfig {
   if (serverUrl) {
     if (httpUrl(serverUrl)) config.serverUrl = serverUrl
     else warnings.push(`Default server URL "${serverUrl}" is not an http(s) URL and was ignored.`)
+  }
+
+  const explorerUrl = text(source.explorerUrl)
+  if (explorerUrl) {
+    if (httpUrl(explorerUrl)) config.explorerUrl = explorerUrl
+    else warnings.push(`Explorer URL "${explorerUrl}" is not an http(s) URL and was ignored.`)
   }
 
   const recentUrls = list(source.recentUrls, /[\s,]+/).filter(url => httpUrl(url))

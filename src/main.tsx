@@ -4,6 +4,7 @@ import App from './App'
 import './styles/index.css'
 import { normalizeServerUrl, useConnectionStore } from './stores/connection'
 import { applyServerFromQuery } from './services/serverFromQuery'
+import { applyElementLinkFromQuery } from './services/elementLink'
 import { loadRuntimeConfig } from './config/runtimeConfig'
 
 async function init() {
@@ -22,6 +23,8 @@ async function init() {
 
   // A `?server=` deep-link overrides both the config.json default and any
   // persisted value, so apply it last (it waits for store hydration itself).
+  // A shared link also names an element; it is read first, since the call below consumes `server`.
+  applyElementLinkFromQuery()
   applyServerFromQuery()
 
   ReactDOM.createRoot(document.getElementById('root')!).render(

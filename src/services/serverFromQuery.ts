@@ -9,7 +9,7 @@ const normalizeUrl = (url: string) => url.replace(/\/+$/, '')
  * http/https URL and returns it normalized; returns null for an absent,
  * malformed, or non-http(s) value. Never throws.
  */
-function parseServerParam(search: string): string | null {
+export function parseServerParam(search: string): string | null {
   const raw = new URLSearchParams(search).get('server')
   if (!raw) return null
 
