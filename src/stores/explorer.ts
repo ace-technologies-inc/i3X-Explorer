@@ -24,9 +24,13 @@ export interface SelectedItem {
 
 /** The tabs of the element detail view. Part of a history stop, see NavEntry. */
 export type DetailTab = 'overview' | 'relationships' | 'history' | 'subtree'
+/** The tabs of Home. Part of a history stop too, see NavEntry. */
+export type HomeTab = 'overview' | 'model' | 'insights'
+/** The views inside Home's Model insights tab. */
+export type InsightsSection = 'summary' | 'conventions' | 'types'
 
-/** A full-panel page that overlays the selection: the two of them, or neither. */
-export type MainPage = 'insights' | 'diff' | null
+/** A full-panel page that overlays the selection, or none. */
+export type MainPage = 'diff' | null
 
 /**
  * One stop in the navigation history: everything the main panel needs to
@@ -34,10 +38,11 @@ export type MainPage = 'insights' | 'diff' | null
  *
  * The stack used to hold bare selections, so Back restored *an element* but not
  * the page you were on: leaving the Subtree tab of an object and coming back
- * landed on its Overview, and the Insights and diff pages weren't history stops
- * at all (they were closed by any navigation and could not be returned to).
- * A stop is therefore a triple, and every one of those is a real navigation:
- * switching tabs pushes, opening a page pushes, closing it pushes.
+ * landed on its Overview, and the diff page wasn't a history stop at all (any
+ * navigation closed it and nothing could return to it). A stop is therefore
+ * everything below, and every one of those is a real navigation: switching a
+ * tab pushes (a detail tab or a Home tab), opening a page pushes, closing it
+ * pushes.
  */
 export interface NavEntry {
   /** null is Home; with a page set it's the page opened from Home. */
@@ -46,9 +51,11 @@ export interface NavEntry {
   tab: DetailTab
   /** The full-panel page drawn over the selection, if any. */
   page: MainPage
+  /** Which Home tab was showing. Only drawn when `item` is null; other stops carry it through, so Home reopens where it was left. */
+  homeTab: HomeTab
 }
 
-const HOME_ENTRY: NavEntry = { item: null, tab: 'overview', page: null }
+const HOME_ENTRY: NavEntry = { item: null, tab: 'overview', page: null, homeTab: 'overview' }
 export const POLL_OPTIONS: readonly { label: string; ms: number; isDefault?: boolean }[] = [
   { label: 'Refresh every 15 seconds', ms: 15_000 },
   { label: 'Refresh every 30 seconds', ms: 30_000, isDefault: true },
@@ -280,12 +287,14 @@ interface ExplorerState {
   // list is paged (see CHILD_PAGE_SIZE). Absent = first page. Infinity = all.
   childPageLimits: Map<string, number>
   selectedItem: SelectedItem | null
-  // Which detail tab the current stop is on, and which full-panel page (if any)
-  // is drawn over it. Both mirror history[historyIndex]: the history is the
-  // source of truth for what the main panel shows, so Back/Forward restore the
-  // page you were on and not merely the element.
+  // Which detail tab the current stop is on, which full-panel page (if any) is
+  // drawn over it, and which Home tab it shows. All three mirror
+  // history[historyIndex]: the history is the source of truth for what the main
+  // panel shows, so Back/Forward restore the page you were on and not merely
+  // the element.
   detailTab: DetailTab
   activePage: MainPage
+  homeTab: HomeTab
   // Visited stops, oldest first; Home is a real one, Back must land on it rather
   // than skip over it, so the stack starts seeded with it and historyIndex is
   // the cursor into it.
@@ -296,6 +305,9 @@ interface ExplorerState {
   pollIntervalMs: number
   manualRefreshTick: number
   sidebarCollapsed: boolean
+  // Which view of Home's Model insights tab is showing. Here, not in the tab, so
+  // Back from an object lands on the view it was opened from.
+  insightsSection: InsightsSection
   // How many hops the Relationships map walks out from the selected element.
   // Lives here, not in the tab: MainPanel re-keys the detail view per element, so
   // tab-local state would snap back to the default on every selection.
@@ -377,7 +389,7 @@ interface ExplorerState {
   selectItem: (item: SelectedItem | null, tab?: DetailTab) => void
   /** Switch the detail tab. A tab is a page, so this is a navigation stop. */
   setDetailTab: (tab: DetailTab) => void
-  /** Show a full-panel page (insights / diff) over the current selection. */
+  /** Show a full-panel page (the snapshot diff) over the current selection. */
   openPage: (page: Exclude<MainPage, null>) => void
   /** Leave the current page, back to whatever the selection points at. */
   closePage: () => void
@@ -389,6 +401,9 @@ interface ExplorerState {
   setCatalogCacheEnabled: (enabled: boolean) => void
   triggerManualRefresh: () => void
   toggleSidebar: () => void
+  /** Show Home on this tab. A tab is a page, so this is a navigation stop. */
+  setHomeTab: (tab: HomeTab) => void
+  setInsightsSection: (section: InsightsSection) => void
   setRelationshipDepth: (depth: number) => void
   revealRelationshipDepth: () => void
   setRelationshipView: (view: RelationshipView) => void
@@ -404,8 +419,8 @@ interface ExplorerState {
 /**
  * Add a stop and move the cursor onto it. Navigating after going back discards
  * the forward entries, like a browser. Everything the main panel reads
- * (selectedItem / detailTab / activePage) is written from the entry, so the
- * three can never drift out of sync with the stack.
+ * (selectedItem / detailTab / activePage / homeTab) is written from the entry,
+ * so none of it can drift out of sync with the stack.
  */
 function pushEntry(entry: NavEntry) {
   const { history, historyIndex } = useExplorerStore.getState()
@@ -416,6 +431,7 @@ function pushEntry(entry: NavEntry) {
     selectedItem: entry.item,
     detailTab: entry.tab,
     activePage: entry.page,
+    homeTab: entry.homeTab,
     history: trimmed,
     historyIndex: trimmed.length - 1,
   })
@@ -430,6 +446,7 @@ function gotoIndex(index: number) {
     selectedItem: target.item,
     detailTab: target.tab,
     activePage: target.page,
+    homeTab: target.homeTab,
     historyIndex: index,
     // A null item is Home or a full-panel page: nothing to reveal in the tree.
     expandedNodes: target.item
@@ -482,6 +499,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   pollIntervalMs: readPollIntervalMs(),
   manualRefreshTick: 0,
   sidebarCollapsed: false,
+  homeTab: 'overview',
+  insightsSection: 'summary',
   relationshipDepth: DEFAULT_RELATIONSHIP_DEPTH,
   relationshipDepthShown: INITIAL_RELATIONSHIP_DEPTH_PILLS,
   relationshipView: 'tree',
@@ -706,14 +725,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       set({ selectedItem: item })
       return
     }
-    pushEntry({ item, tab: nextTab, page: null })
+    pushEntry({ item, tab: nextTab, page: null, homeTab: current.homeTab })
   },
 
   setDetailTab: (tab) => {
     const { history, historyIndex } = get()
     const current = history[historyIndex] ?? HOME_ENTRY
     if (current.tab === tab && current.page === null) return
-    pushEntry({ item: current.item, tab, page: null })
+    pushEntry({ item: current.item, tab, page: null, homeTab: current.homeTab })
   },
 
   openPage: (page) => {
@@ -722,14 +741,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (current.page === page) return
     // The selection is carried along, so closing the page (or Back) returns to
     // whatever you were looking at before it opened.
-    pushEntry({ item: current.item, tab: current.tab, page })
+    pushEntry({ item: current.item, tab: current.tab, page, homeTab: current.homeTab })
   },
 
   closePage: () => {
     const { history, historyIndex } = get()
     const current = history[historyIndex] ?? HOME_ENTRY
     if (current.page === null) return
-    pushEntry({ item: current.item, tab: current.tab, page: null })
+    pushEntry({ item: current.item, tab: current.tab, page: null, homeTab: current.homeTab })
   },
 
   // goBack/goForward restore a stop directly rather than calling selectItem,
@@ -759,6 +778,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
   triggerManualRefresh: () => set(state => ({ manualRefreshTick: state.manualRefreshTick + 1 })),
   toggleSidebar: () => set(state => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  setHomeTab: (tab) => {
+    const { history, historyIndex } = get()
+    const current = history[historyIndex] ?? HOME_ENTRY
+    // Already Home, on this tab: nothing to push.
+    if (current.item === null && current.page === null && current.homeTab === tab) return
+    pushEntry({ item: null, tab: current.tab, page: null, homeTab: tab })
+  },
+  setInsightsSection: (section) => set({ insightsSection: section }),
   setRelationshipDepth: (depth) => set({
     relationshipDepth: Math.max(MIN_RELATIONSHIP_DEPTH, Math.min(MAX_RELATIONSHIP_DEPTH, depth)),
   }),
@@ -799,6 +826,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     selectedItem: null,
     detailTab: 'overview',
     activePage: null,
+    homeTab: 'overview',
     history: [HOME_ENTRY],
     historyIndex: 0,
     isLoading: false,

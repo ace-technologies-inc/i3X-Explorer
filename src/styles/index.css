@@ -16,6 +16,21 @@
   --i3x-error:      239 68 68;    /* #ef4444 */
   --i3x-relationship: 5 150 105;  /* #059669, non-hierarchical relationship tree rows */
 
+  /* Chart series: identity ("which one"), never status. The order is the     */
+  /* colorblind-safety mechanism (validated against both surfaces with the    */
+  /* dataviz skill's validate_palette.js), so assign slots in sequence and    */
+  /* never skip, cycle or invent a seventh.                                   */
+  --i3x-series-1: 42 120 214;      /* #2a78d6 blue */
+  --i3x-series-2: 235 104 52;      /* #eb6834 orange */
+  --i3x-series-3: 27 175 122;      /* #1baf7a aqua */
+  --i3x-series-4: 237 161 0;       /* #eda100 yellow */
+  --i3x-series-5: 232 123 164;     /* #e87ba4 magenta */
+  --i3x-series-6: 0 131 0;         /* #008300 green */
+  --i3x-series-other: 184 182 175; /* the folded tail, deliberately no hue */
+  /* Text printed inside a fill: white, except where the fill is too light.   */
+  --i3x-series-4-ink: 11 11 11;
+  --i3x-series-other-ink: 11 11 11;
+
   /* Light theme surfaces (default) */
   --i3x-component:       109 40 217;
   --i3x-bg:              245 245 245;  /* #f5f5f5 */
@@ -30,6 +45,16 @@
 /* Dark theme via OS preference (when no explicit override is set) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* The same six hues, stepped for the dark surface */
+    --i3x-series-1: 57 135 229;
+    --i3x-series-2: 217 89 38;
+    --i3x-series-3: 25 158 112;
+    --i3x-series-4: 201 133 0;
+    --i3x-series-5: 213 81 129;
+    --i3x-series-6: 12 163 12;
+    --i3x-series-other: 98 98 94;
+    --i3x-series-4-ink: 255 255 255;
+    --i3x-series-other-ink: 255 255 255;
     --i3x-component:       167 139 250;
     --i3x-bg:              30 30 30;    /* #1e1e1e */
     --i3x-surface:         37 37 38;    /* #252526 */
@@ -43,6 +68,15 @@
 
 /* Dark theme via explicit user override */
 :root[data-theme="dark"] {
+  --i3x-series-1: 57 135 229;      /* #3987e5 */
+  --i3x-series-2: 217 89 38;       /* #d95926 */
+  --i3x-series-3: 25 158 112;      /* #199e70 */
+  --i3x-series-4: 201 133 0;       /* #c98500 */
+  --i3x-series-5: 213 81 129;      /* #d55181 */
+  --i3x-series-6: 12 163 12;       /* #0ca30c */
+  --i3x-series-other: 98 98 94;
+  --i3x-series-4-ink: 255 255 255;
+  --i3x-series-other-ink: 255 255 255;
   --i3x-component:       167 139 250;
   --i3x-bg:              30 30 30;
   --i3x-surface:         37 37 38;

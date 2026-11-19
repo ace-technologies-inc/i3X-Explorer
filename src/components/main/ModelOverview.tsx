@@ -1,183 +1,409 @@
-import type { ObjectInstance, ObjectType } from '../../api/types'
-import { withOther, type ModelStats, type ObjectRef, type Tally } from './modelStats'
+import { useMemo, useState } from 'react'
+import type { Namespace, ObjectInstance, ObjectType } from '../../api/types'
+import { useExplorerStore } from '../../stores/explorer'
+import { listRootObjects, type ModelStats, type ObjectRef, type Tally } from './modelStats'
 import { useInsightsReport } from '../../data/useInsightsReport'
-import { ModelInsightsCard } from './ModelInsightsCard'
-import { Card } from './primitives'
+import { traceSpan } from '../../diagnostics/perfTrace'
+import { WindowedList } from '../insights/WindowedList'
+import { ModelInsightsSummary } from './ModelInsightsSummary'
+import {
+  ColumnChart,
+  OBJECT_BAR_HEIGHT,
+  ObjectBar,
+  ObjectBars,
+  RankedBars,
+  SegmentedBar,
+  foldParts,
+  foldRows,
+  type BarRow,
+} from './homeCharts'
+import { HomePage, Kpi, LinkButton, Panel, Toggle } from './homePrimitives'
 import { InfoHint } from './InfoHint'
 import { useElementNavigation } from './navigation'
 
-/** Bars past this fold into an "Other" row, a catalog can declare hundreds of types. */
+/** Ranked bars past this fold into an "Other" row that opens: a catalog can declare hundreds of types. */
 const MAX_BARS = 12
 
+/** Rows in a list of objects: enough to start from, few enough that the card stays a summary. */
+const LIST_ROWS = 6
+
 /**
- * What the model is made of, and, more to the point, where to start reading it.
+ * The two model tabs of Home, both drawn from one computation.
  *
- * On a 100k-object server the counts alone are wallpaper: knowing there are
- * 100,000 objects tells you nothing you can act on. So every row here is a way
- * IN. The hubs are where the structure actually is, the roots are the entry
- * points, a type bar opens that type, and the issues card tells you when the
- * catalog is lying to you. Nothing on this page is a dead end.
+ * `overview` is the model at a glance: four headline numbers, what it is made
+ * of as one bar, its shape level by level, where to start (the roots), and how
+ * consistent it is. `model` is the same data to read closely: every type as a
+ * ranked bar, the hierarchy with its figures, the objects holding the most
+ * children, and the namespaces.
+ *
+ * On a 100k-object server a count alone is wallpaper, so nothing here is only a
+ * count: a part opens its type, a row opens its object. And nothing is cut
+ * short without a way to the rest: a folded "Other" opens, the first roots of
+ * thousands can be told to show them all, and the namespaces that hold nothing
+ * are listed.
  */
 export function ModelOverview({
   objects,
   objectTypes,
-  namespaceCount,
+  namespaces,
   isLoading = false,
+  section,
 }: {
+  section: 'overview' | 'model'
   objects: ObjectInstance[]
   objectTypes: ObjectType[]
-  namespaceCount: number
+  namespaces: Namespace[]
   /** True while the catalog fetch is in flight, shows the skeleton instead of "No model loaded". */
   isLoading?: boolean
 }) {
-  const { selectElement, selectType } = useElementNavigation()
+  const { selectElement, selectType, selectNamespace } = useElementNavigation()
+  const setHomeTab = useExplorerStore(state => state.setHomeTab)
 
-  // One shared computation for the stat row AND the insights card/page, made
-  // off the main thread and memoized on the store array identities.
-  const insights = useInsightsReport(objects, objectTypes, namespaceCount)
+  // One shared computation for both tabs AND the Model insights tab, made off the
+  // main thread and memoized on the store array identities.
+  const insights = useInsightsReport(objects, objectTypes, namespaces.length)
 
-  if (objects.length === 0) {
-    if (isLoading) return <OverviewSkeleton />
+  if (objects.length === 0 && !isLoading) {
     return (
-      <div className="flex-1 grid place-items-center text-center p-6">
-        <div>
-          <p className="text-sm text-i3x-text-muted">No model loaded</p>
-          <p className="text-xs text-i3x-text-muted/70 mt-1">
-            Connect to a server to load the model.
-          </p>
+      <HomePage>
+        <div className="py-20 text-center">
+          <p className="text-[14px] text-i3x-text-muted">No model loaded</p>
+          <p className="text-[13px] text-i3x-text-muted mt-1">Connect to a server to load the model.</p>
         </div>
-      </div>
+      </HomePage>
     )
   }
-  if (!insights) return <OverviewSkeleton />
+  if (objects.length === 0 || !insights) {
+    return (
+      <HomePage>
+        <Skeleton />
+      </HomePage>
+    )
+  }
   const { stats, report } = insights
+  const typesNote = `${stats.typesInUse.toLocaleString()} ${stats.typesInUse === 1 ? 'type' : 'types'} in use${
+    stats.typesDeclared > stats.typesInUse ? `, of ${stats.typesDeclared.toLocaleString()} declared` : ''
+  }`
+
+  if (section === 'model') {
+    return (
+      <HomePage>
+        {/* Two independent columns, so a tall card never leaves a short neighbor padded out to match it. */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+          <div className="space-y-4 min-w-0">
+            <Panel title="Objects by type" note={typesNote}>
+              <RankedBars rows={foldRows(stats.byType.map(tallyRow), MAX_BARS)} unit="objects" total={stats.objects} onSelect={selectType} />
+            </Panel>
+            <Panel title="Objects with the most children">
+              <ObjectList items={stats.hubs.slice(0, LIST_ROWS)} empty="Nothing in this model contains anything else." onSelect={selectElement} />
+            </Panel>
+          </div>
+          <div className="space-y-4 min-w-0">
+            <HierarchyPanel stats={stats} detailed />
+            <NamespacesPanel stats={stats} namespaces={namespaces} onSelect={selectNamespace} />
+          </div>
+        </div>
+      </HomePage>
+    )
+  }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-4 space-y-3">
-      <StatRow stats={stats} />
-
-      <Issues stats={stats} />
-
-      <ModelInsightsCard report={report} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Card
-          title="Largest containers"
-          actions={
-            <InfoHint label="What is this?" title="Largest containers">
-              The objects holding the most direct children. On a big model this is where the
-              structure lives, so start here rather than scrolling the tree. Click one to open it.
-            </InfoHint>
-          }
-        >
-          <ObjectList
-            items={stats.hubs}
-            empty="Nothing in this model contains anything else."
-            unit="children"
-            onSelect={selectElement}
-          />
-        </Card>
-
-        <Card
-          title={`Entry points · ${stats.roots.toLocaleString()} root ${
-            stats.roots === 1 ? 'object' : 'objects'
-          }`}
-          actions={
-            <InfoHint label="What is this?" title="Entry points">
-              Objects you can't go up from: they either name no parent, or name one this catalog
-              doesn't contain. They are the tops of the hierarchy and the natural places to start.
-              <br />
-              <br />
-              A model with thousands of roots is flat, not hierarchical, which is worth knowing
-              before you go looking for a tree that isn't there.
-            </InfoHint>
-          }
-        >
-          <ObjectList
-            items={stats.rootObjects}
-            empty="No roots, every object names a parent."
-            unit="children"
-            onSelect={selectElement}
-          />
-        </Card>
+    <HomePage>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <Kpi label="Objects" value={stats.objects.toLocaleString()} note={`${stats.roots.toLocaleString()} at the root`} />
+        <Kpi
+          label="Object types"
+          value={stats.typesInUse.toLocaleString()}
+          note={stats.typesDeclared > stats.typesInUse ? `of ${stats.typesDeclared.toLocaleString()} declared` : 'all in use'}
+        />
+        <Kpi
+          label="Namespaces"
+          value={stats.namespaces.toLocaleString()}
+          note={`${stats.byNamespace.length.toLocaleString()} hold objects`}
+        />
+        <Kpi
+          label="Hierarchy depth"
+          value={stats.maxDepth.toLocaleString()}
+          note={stats.maxDepth === 1 ? 'level below the roots' : 'levels below the roots'}
+        />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Card title={`Objects by type · ${stats.typesInUse.toLocaleString()} in use`}>
-          <BarList
-            items={withOther(stats.byType, MAX_BARS)}
-            total={stats.objects}
-            unit="objects"
-            onSelect={selectType}
-          />
-        </Card>
+      <Panel
+        title="Objects by type"
+        note={typesNote}
+        action={<LinkButton onClick={() => setHomeTab('model')}>All types</LinkButton>}
+      >
+        <SegmentedBar
+          parts={foldParts(stats.byType.map(tally => ({ key: tally.key, label: tally.label, value: tally.count })))}
+          unit="objects"
+          label="Objects by type"
+          onSelect={selectType}
+        />
+      </Panel>
 
-        <Card
-          title="Hierarchy shape"
-          actions={
-            <InfoHint label="How is depth counted?" title="Hierarchy shape">
-              A root is level 0, its children level 1, and so on down the parent chain. Fan-out is
-              how many direct children an object holds.
-            </InfoHint>
-          }
-        >
-          <BarList items={stats.byDepth} total={stats.objects} unit="objects" />
-          <dl className="mt-4 pt-3 border-t border-i3x-border grid grid-cols-2 gap-x-4 gap-y-2">
-            <Fact label="Leaf objects" value={stats.leaves.toLocaleString()} />
-            <Fact label="Composition objects" value={stats.compositions.toLocaleString()} />
-            <Fact
-              label="Children per parent"
-              value={`${stats.avgFanout.toFixed(1)} avg · ${stats.maxFanout.toLocaleString()} max`}
-            />
-            <Fact label="Deepest chain" value={`${stats.maxDepth.toLocaleString()} levels`} />
-          </dl>
-        </Card>
+      {/* Three across only where each still has room for its rows; otherwise two, with Model insights underneath. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
+        <RootObjectsPanel stats={stats} objects={objects} objectTypes={objectTypes} onSelect={selectElement} />
+        <HierarchyPanel stats={stats} />
+        <ModelInsightsSummary report={report} stats={stats} className="lg:col-span-2 2xl:col-span-1" />
       </div>
+    </HomePage>
+  )
+}
 
-      {stats.byNamespace.length > 1 && (
-        <Card title="Objects by namespace">
-          <BarList items={withOther(stats.byNamespace, MAX_BARS)} total={stats.objects} unit="objects" />
-        </Card>
+function tallyRow(tally: Tally): BarRow {
+  return { key: tally.key, label: tally.label, value: tally.count }
+}
+
+function objectRow(item: ObjectRef): BarRow {
+  return {
+    key: item.elementId,
+    label: item.label,
+    // The parent tells apart objects that share a name, which a real model has plenty of.
+    note: item.parentLabel ? `${item.typeLabel} in ${item.parentLabel}` : item.typeLabel,
+    value: item.children,
+    title: item.elementId,
+  }
+}
+
+// Module-level, so the virtualizer is not handed a new key function (and re-measures every row) on each render.
+const rowKey = (row: BarRow) => row.key
+
+/**
+ * The tops of the hierarchy, largest first: the first few, and on request every
+ * one of them. A model with thousands of roots is flat, not hierarchical, which
+ * the count beside the title says before anyone goes hunting for a tree that
+ * isn't there.
+ */
+function RootObjectsPanel({
+  stats,
+  objects,
+  objectTypes,
+  onSelect,
+}: {
+  stats: ModelStats
+  objects: ObjectInstance[]
+  objectTypes: ObjectType[]
+  onSelect: (elementId: string) => void
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const top = stats.rootObjects.slice(0, LIST_ROWS)
+  const hasMore = stats.roots > top.length
+
+  // Built only once asked for: the stats carry the top few, not a list that can be tens of thousands long.
+  const all = useMemo(
+    () => (showAll && hasMore ? traceSpan('list root objects', () => listRootObjects(objects, objectTypes).map(objectRow)) : null),
+    [showAll, hasMore, objects, objectTypes]
+  )
+
+  return (
+    <Panel
+      title="Root objects"
+      note={
+        !hasMore
+          ? 'By children'
+          : all
+            ? `All ${all.length.toLocaleString()}, the largest first`
+            : `The ${top.length} largest of ${stats.roots.toLocaleString()}, by children`
+      }
+      action={
+        hasMore ? (
+          <LinkButton onClick={() => setShowAll(value => !value)}>
+            {showAll ? `Show the ${top.length} largest` : `Show all ${stats.roots.toLocaleString()}`}
+          </LinkButton>
+        ) : undefined
+      }
+    >
+      {all ? (
+        <WindowedList
+          items={all}
+          estimateHeight={OBJECT_BAR_HEIGHT}
+          // About eight rows: tall enough to browse, short enough that the cards beside this one are not stretched far.
+          className="max-h-[19rem] pr-2"
+          getKey={rowKey}
+          renderRow={(row, index) => (
+            <div className={index === 0 ? '' : 'border-t border-i3x-border/60'}>
+              <ObjectBar row={row} peak={all[0].value} unit="children" onSelect={onSelect} />
+            </div>
+          )}
+        />
+      ) : (
+        <ObjectList items={top} empty="No roots, every object names a parent." onSelect={onSelect} />
       )}
+    </Panel>
+  )
+}
+
+/**
+ * Objects by namespace, and under the bars the namespaces that hold none: "8 of
+ * 11 hold objects" is a count of three things nobody could otherwise see.
+ */
+function NamespacesPanel({
+  stats,
+  namespaces,
+  onSelect,
+}: {
+  stats: ModelStats
+  namespaces: Namespace[]
+  onSelect: (uri: string) => void
+}) {
+  const [emptyOpen, setEmptyOpen] = useState(false)
+  const declared = new Set(namespaces.map(namespace => namespace.uri))
+  const used = new Set(stats.byNamespace.map(tally => tally.key))
+  const empty = namespaces.filter(namespace => !used.has(namespace.uri))
+
+  // One namespace holding everything, and none standing empty, is not a comparison.
+  if (stats.byNamespace.length <= 1 && empty.length === 0) return null
+
+  return (
+    <Panel
+      title="Objects by namespace"
+      note={`${stats.byNamespace.length.toLocaleString()} of ${stats.namespaces.toLocaleString()} namespaces hold objects`}
+    >
+      <RankedBars
+        rows={foldRows(
+          // An object can name a namespace the server does not declare: drawn, but there is nothing to open.
+          stats.byNamespace.map(tally => ({ ...tallyRow(tally), inert: !declared.has(tally.key) })),
+          MAX_BARS
+        )}
+        unit="objects"
+        total={stats.objects}
+        onSelect={onSelect}
+      />
+      {empty.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-i3x-border">
+          <Toggle open={emptyOpen} onToggle={() => setEmptyOpen(value => !value)} label="the namespaces that hold no objects">
+            <span className="text-i3x-text-muted">
+              {empty.length.toLocaleString()} {empty.length === 1 ? 'namespace holds' : 'namespaces hold'} no objects
+            </span>
+          </Toggle>
+          {emptyOpen && (
+            <ul className="mt-1.5">
+              {empty.map(namespace => (
+                <li key={namespace.uri}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(namespace.uri)}
+                    title={`${namespace.uri} · click to open`}
+                    className="group w-full py-1 flex items-baseline gap-2.5 text-left rounded min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+                  >
+                    <span className="text-[13px] text-i3x-text truncate group-hover:text-i3x-primary">
+                      {namespace.displayName || namespace.uri}
+                    </span>
+                    {namespace.displayName && namespace.displayName !== namespace.uri && (
+                      <span className="min-w-0 flex-1 text-[12px] text-i3x-text-muted truncate">{namespace.uri}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+/** The hierarchy's shape: one column per level, and the figures that explain it. */
+function HierarchyPanel({ stats, detailed = false }: { stats: ModelStats; detailed?: boolean }) {
+  return (
+    <Panel
+      title={
+        <>
+          Hierarchy
+          {detailed && (
+            <InfoHint label="How is depth counted?" title="Hierarchy" align="left">
+              A root is level 0, its children level 1, and so on down the parent chain. A root is an
+              object you can't go up from: it names no parent, or names one this catalog doesn't
+              contain.
+              <br />
+              <br />
+              Only parent and child links are counted here. Other relationships are fetched one
+              object at a time and shown on an element's <b className="text-i3x-text">Relationships</b>{' '}
+              tab.
+            </InfoHint>
+          )}
+        </>
+      }
+      note="Objects per level"
+    >
+      <ColumnChart
+        columns={stats.byDepth.map((tally, level) => ({
+          key: tally.key,
+          label: tally.label,
+          // Under the column, "Root" then the bare level number: the card already says these are levels.
+          tick: level === 0 ? 'Root' : String(level),
+          value: tally.count,
+        }))}
+        unit="objects"
+        label={`Objects at each hierarchy level: ${stats.byDepth.map(tally => `${tally.label} ${tally.count.toLocaleString()}`).join(', ')}`}
+      />
+      <dl className={`mt-4 grid gap-x-5 gap-y-3 ${detailed ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
+        <Fact label="Roots" value={stats.roots.toLocaleString()} />
+        <Fact label="Leaves" value={stats.leaves.toLocaleString()} />
+        <Fact label="Children per parent" value={`${stats.avgFanout.toFixed(1)} avg`} />
+        {detailed && <Fact label="Most under one parent" value={stats.maxFanout.toLocaleString()} />}
+      </dl>
+    </Panel>
+  )
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[12px] text-i3x-text-muted truncate" title={label}>
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-[13.5px] font-medium text-i3x-text tabular-nums">{value}</dd>
     </div>
   )
 }
 
-/** The headline numbers. Proportional figures, tabular-nums makes display sizes look loose. */
+/** A ranked list of objects with their sizes drawn, each one a way into the tree. */
+function ObjectList({
+  items,
+  empty,
+  onSelect,
+}: {
+  items: ObjectRef[]
+  empty: string
+  onSelect: (elementId: string) => void
+}) {
+  if (items.length === 0) return <p className="text-[13px] text-i3x-text-muted">{empty}</p>
+  return <ObjectBars rows={items.map(objectRow)} unit="children" onSelect={onSelect} />
+}
+
 /**
- * Shown while the catalog is still arriving. Mirrors the real layout (stat
- * row, then two card columns) so the page doesn't jump when the data lands.
- * Stays up until the model actually lands, isLoading covers the whole
- * object-list prefetch (see services/connection.ts), so there is no blank
- * frame between the skeleton and the populated overview.
+ * Shown while the catalog is still arriving. Mirrors the real page (four
+ * figures, then cards) so nothing jumps when the data lands. Stays up until the
+ * model is on screen: isLoading covers the whole object-list prefetch (see
+ * services/connection.ts), so there is no blank frame in between.
  */
-function OverviewSkeleton() {
+function Skeleton() {
+  const card = 'bg-i3x-surface border border-i3x-border rounded-xl'
   return (
-    <div
-      className="flex-1 min-h-0 overflow-hidden px-3 sm:px-5 py-4 space-y-3"
-      role="status"
-      aria-label="Loading model overview"
-    >
-      <div className="space-y-3 animate-pulse motion-reduce:animate-none" aria-hidden="true">
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="bg-i3x-surface border border-i3x-border rounded-xl p-4 space-y-2">
-              <div className="h-2.5 w-3/5 rounded bg-i3x-text/10" />
-              <div className="h-5 w-2/5 rounded bg-i3x-text/10" />
+    <div role="status" aria-label="Loading the model">
+      <div className="space-y-4 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className={`${card} px-5 py-4 space-y-3`}>
+              <div className="h-3 w-20 rounded bg-i3x-text/10" />
+              <div className="h-7 w-24 rounded bg-i3x-text/10" />
+              <div className="h-3 w-28 rounded bg-i3x-text/10" />
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className={`${card} p-5 space-y-4`}>
+          <div className="h-3.5 w-44 rounded bg-i3x-text/10" />
+          <div className="h-7 rounded bg-i3x-text/10" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {Array.from({ length: 2 }, (_, i) => (
-            <div key={i} className="bg-i3x-surface border border-i3x-border rounded-xl p-4">
-              <div className="h-2.5 w-1/3 rounded bg-i3x-text/10" />
-              <div className="mt-4 space-y-3">
+            <div key={i} className={`${card} p-5`}>
+              <div className="h-3.5 w-32 rounded bg-i3x-text/10" />
+              <div className="mt-5 space-y-4">
                 {Array.from({ length: 5 }, (_, j) => (
-                  <div
-                    key={j}
-                    className="h-3.5 rounded bg-i3x-text/10"
-                    style={{ width: `${90 - j * 12}%` }}
-                  />
+                  <div key={j} className="h-3 rounded bg-i3x-text/10" style={{ width: `${92 - j * 11}%` }} />
                 ))}
               </div>
             </div>
@@ -187,237 +413,3 @@ function OverviewSkeleton() {
     </div>
   )
 }
-
-function StatRow({ stats }: { stats: ModelStats }) {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-      <Stat label="Objects" value={stats.objects} />
-      <Stat label="Object types" value={stats.typesInUse} sub={`of ${stats.typesDeclared} declared`} />
-      <Stat label="Namespaces" value={stats.namespaces} />
-      <Stat
-        label="Containment links"
-        value={stats.links}
-        hint={
-          <InfoHint label="What counts as a link?" title="Containment links">
-            Every object that names a parent this catalog contains. These parent/child links are
-            the only relationships the app knows without asking the server about each object
-            separately.
-            <br />
-            <br />
-            Other kinds of relationship have to be fetched one object at a time. They are shown in
-            full on an element's <b className="text-i3x-text">Relationships</b> tab and are not
-            counted here.
-          </InfoHint>
-        }
-      />
-      <Stat label="Root objects" value={stats.roots} />
-      <Stat
-        label="Hierarchy depth"
-        value={stats.maxDepth}
-        sub={stats.maxDepth === 1 ? 'level below root' : 'levels below root'}
-      />
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  hint,
-}: {
-  label: string
-  value: number
-  sub?: string
-  hint?: React.ReactNode
-}) {
-  return (
-    <div className="relative bg-i3x-surface border border-i3x-border rounded-xl px-4 py-3">
-      {hint && <span className="absolute top-2.5 right-2.5">{hint}</span>}
-      <div className="text-2xl font-semibold text-i3x-text leading-tight">
-        {value.toLocaleString()}
-      </div>
-      <div className="text-[11px] text-i3x-text-muted mt-0.5">{label}</div>
-      {sub && <div className="text-[10.5px] text-i3x-text-muted/70 mt-0.5">{sub}</div>}
-    </div>
-  )
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[11px] text-i3x-text-muted">{label}</dt>
-      <dd className="text-[13px] text-i3x-text tabular-nums">{value}</dd>
-    </div>
-  )
-}
-
-/**
- * Only renders when something is actually wrong. A permanently-visible "0 issues"
- * panel trains people to ignore the space it occupies.
- */
-function Issues({ stats }: { stats: ModelStats }) {
-  const found: { text: string; hint: React.ReactNode }[] = []
-
-  if (stats.orphans > 0) {
-    found.push({
-      text: `${stats.orphans.toLocaleString()} orphaned ${
-        stats.orphans === 1 ? 'object' : 'objects'
-      }`,
-      hint: (
-        <InfoHint label="What is an orphan?" title="Orphaned objects" align="left">
-          They name a parent this catalog doesn't contain, usually because only part of the model
-          is loaded. Since you can't go up from one, they are counted as roots and listed under{' '}
-          <b className="text-i3x-text">Entry points</b>.
-        </InfoHint>
-      ),
-    })
-  }
-
-  if (stats.untyped > 0) {
-    found.push({
-      text: `${stats.untyped.toLocaleString()} untyped ${
-        stats.untyped === 1 ? 'object' : 'objects'
-      }`,
-      hint: (
-        <InfoHint label="What does untyped mean?" title="Untyped objects" align="left">
-          They carry no <span className="font-mono">typeId</span>, so nothing describes their
-          shape and there is nothing to group them with.
-        </InfoHint>
-      ),
-    })
-  }
-
-  // Declared types with no instances are NOT listed here. In I3X a namespace
-  // is a type library, so publishing a profile this server doesn't fully
-  // instantiate is normal, and it was routinely the largest number in a strip
-  // whose whole point is "something is wrong". The full list is still
-  // browsable on the Model Insights page, filed as information, not an issue.
-
-  if (found.length === 0) return null
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 bg-i3x-warning/5 border border-i3x-warning/30 rounded-xl px-4 py-2.5">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-i3x-warning">
-        Worth knowing
-      </span>
-      {found.map(issue => (
-        <span key={issue.text} className="inline-flex items-center gap-1.5 text-[12px] text-i3x-text">
-          {issue.text}
-          {issue.hint}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-/** A ranked list of objects, each one a way into the tree. */
-function ObjectList({
-  items,
-  empty,
-  unit,
-  onSelect,
-}: {
-  items: ObjectRef[]
-  empty: string
-  unit: string
-  onSelect: (elementId: string) => void
-}) {
-  if (items.length === 0) return <p className="text-xs text-i3x-text-muted">{empty}</p>
-
-  return (
-    <ul className="space-y-0.5">
-      {items.map(item => (
-        <li key={item.elementId}>
-          <button
-            type="button"
-            onClick={() => onSelect(item.elementId)}
-            title={item.elementId}
-            className="w-full flex items-baseline gap-3 px-2 py-1.5 rounded-lg text-left hover:bg-i3x-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
-          >
-            <span className="text-[13px] text-i3x-text truncate">{item.label}</span>
-            <span className="text-[11px] text-i3x-text-muted truncate">{item.typeLabel}</span>
-            <span className="ml-auto shrink-0 text-[12px] text-i3x-text-muted tabular-nums">
-              {item.children.toLocaleString()} {unit}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/**
- * Ranked magnitude, so: one hue for every bar. Coloring bars darker-where-bigger
- * would double-encode the length as hue and burn the only free channel on
- * information the bar already shows.
- */
-function BarList({
-  items,
-  total,
-  unit,
-  onSelect,
-}: {
-  items: Tally[]
-  total: number
-  unit: string
-  /** When given, each row opens its category. The "Other" fold-up row stays inert. */
-  onSelect?: (key: string) => void
-}) {
-  const max = items.reduce((peak, item) => Math.max(peak, item.count), 0)
-  if (max === 0) return <p className="text-xs text-i3x-text-muted">Nothing to count.</p>
-
-  return (
-    <ul className="space-y-1.5">
-      {items.map(item => {
-        const share = total > 0 ? (item.count / total) * 100 : 0
-        const clickable = onSelect !== undefined && !item.isOther
-
-        const body = (
-          <>
-            <span className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
-              <span className="text-[12px] text-i3x-text truncate text-left">{item.label}</span>
-              <span className="text-[12px] text-i3x-text-muted tabular-nums">
-                {item.count.toLocaleString()}
-              </span>
-            </span>
-            <span className="block mt-1 h-1.5 rounded-full bg-i3x-bg overflow-hidden">
-              {/* Anchored to the baseline, rounded only at the data end. */}
-              <span
-                className="block h-full rounded-r-[4px]"
-                style={{
-                  width: `${Math.max((item.count / max) * 100, 1)}%`,
-                  background: 'rgb(var(--i3x-primary) / 0.8)',
-                }}
-              />
-            </span>
-          </>
-        )
-
-        const tooltip = `${item.label}, ${item.count.toLocaleString()} ${unit} (${share.toFixed(1)}%)${
-          clickable ? ' · click to open' : ''
-        }`
-
-        return (
-          <li key={item.key}>
-            {clickable ? (
-              <button
-                type="button"
-                onClick={() => onSelect!(item.key)}
-                title={tooltip}
-                className="w-full block px-1 py-0.5 -mx-1 rounded-lg hover:bg-i3x-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
-              >
-                {body}
-              </button>
-            ) : (
-              <span className="block px-1 py-0.5 -mx-1" title={tooltip}>
-                {body}
-              </span>
-            )}
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-

@@ -20,8 +20,6 @@ export interface Tally {
   key: string
   label: string
   count: number
-  /** The synthetic "Other (N types)" fold-up row. It names no real category, so it can't be opened. */
-  isOther?: boolean
 }
 
 /** A pointer at one object, enough to list it and navigate to it. */
@@ -29,6 +27,11 @@ export interface ObjectRef {
   elementId: string
   label: string
   typeLabel: string
+  /**
+   * The parent's name, when the catalog holds the parent. A model with a folder
+   * called "Assets" under every shop lists eight rows reading "Assets" otherwise.
+   */
+  parentLabel?: string
   children: number
 }
 
@@ -166,12 +169,16 @@ export function computeModelStats(
   }
   const avgFanout = childCount.size ? totalFanout / childCount.size : 0
 
-  const refOf = (object: ObjectInstance): ObjectRef => ({
-    elementId: object.elementId,
-    label: object.displayName || object.elementId,
-    typeLabel: labelOf(object.typeId ?? ''),
-    children: childCount.get(object.elementId) ?? 0,
-  })
+  const refOf = (object: ObjectInstance): ObjectRef => {
+    const parent = hasParent(object) ? index!.get(object.parentId as string) : undefined
+    return {
+      elementId: object.elementId,
+      label: object.displayName || object.elementId,
+      typeLabel: labelOf(object.typeId ?? ''),
+      ...(parent ? { parentLabel: parent.displayName || parent.elementId } : {}),
+      children: childCount.get(object.elementId) ?? 0,
+    }
+  }
 
   // Partial selection, not a full sort: on a 100k catalog with 40k roots, sorting
   // the whole list to show eight rows is wasted work.
@@ -216,6 +223,40 @@ export function computeModelStats(
         count,
       })),
   }
+}
+
+/**
+ * Every root, the ones holding the most children first. `computeModelStats`
+ * keeps only the top few: it runs on every catalog change and its result is
+ * copied out of a worker. This is the whole list, built when someone asks to
+ * see it, with the same test for what a root is.
+ */
+export function listRootObjects(objects: ObjectInstance[], objectTypes: ObjectType[]): ObjectRef[] {
+  const typeLabels = new Map(objectTypes.map(type => [type.elementId, type.displayName || type.elementId]))
+  const index = new Map<string, ObjectInstance>()
+  for (const object of objects) index.set(object.elementId, object)
+
+  const childCount = new Map<string, number>()
+  const roots = new Map<string, ObjectInstance>()
+  for (const object of objects) {
+    const parent = hasParent(object) ? index.get(object.parentId as string) : undefined
+    if (parent) childCount.set(parent.elementId, (childCount.get(parent.elementId) ?? 0) + 1)
+    // Keyed by id: a duplicated elementId is one object here, as everywhere else in the app.
+    else roots.set(object.elementId, object)
+  }
+
+  return [...roots.values()]
+    .map(object => {
+      const typeId = object.typeId ?? ''
+      return {
+        elementId: object.elementId,
+        label: object.displayName || object.elementId,
+        typeLabel: typeLabels.get(typeId) ?? typeId,
+        children: childCount.get(object.elementId) ?? 0,
+      }
+    })
+    // Plain comparison for the tie-break: a model can have tens of thousands of roots, most of them tied at zero.
+    .sort((a, b) => b.children - a.children || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0))
 }
 
 /**
@@ -282,16 +323,4 @@ function rank(tally: Map<string, number>, labelOf: (key: string) => string): Tal
   return [...tally.entries()]
     .map(([key, count]) => ({ key, label: labelOf(key) || '(untyped)', count }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-}
-
-/**
- * Fold a ranked list down to `limit` rows plus an "Other" row, so a catalog with
- * 300 types doesn't render 300 bars. Returns the list unchanged when it fits.
- */
-export function withOther(tallies: Tally[], limit: number): Tally[] {
-  if (tallies.length <= limit) return tallies
-  const head = tallies.slice(0, limit)
-  const tail = tallies.slice(limit)
-  const rest = tail.reduce((sum, item) => sum + item.count, 0)
-  return [...head, { key: '\u0000other', label: `Other (${tail.length})`, count: rest, isOther: true }]
 }
