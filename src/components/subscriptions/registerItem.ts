@@ -46,7 +46,7 @@ export async function registerItem(
   }
 
   if (!composed) {
-    await client.unregisterMonitoredItems(subscriptionId, [object.elementId], maxDepth).catch(() => undefined)
+    await client.unregisterMonitoredItems(subscriptionId, [object.elementId]).catch(() => undefined)
     const reason = lastError instanceof Error ? lastError.message : String(lastError)
     throw new Error(`Could not read the components of ${object.elementId}, so it was not subscribed: ${reason}`)
   }

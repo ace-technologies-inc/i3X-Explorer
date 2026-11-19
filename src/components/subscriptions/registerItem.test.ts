@@ -66,7 +66,7 @@ describe('registerItem', () => {
       'Could not read the components of line, so it was not subscribed: timeout'
     )
     expect(client.getValue).toHaveBeenCalledTimes(COMPONENT_LOOKUP_ATTEMPTS)
-    expect(client.unregisterMonitoredItems).toHaveBeenCalledWith('s', ['line'], 0)
+    expect(client.unregisterMonitoredItems).toHaveBeenCalledWith('s', ['line'])
   })
 
   it('reads nothing more for a plain object', async () => {

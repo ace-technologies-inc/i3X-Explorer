@@ -568,10 +568,10 @@ describe('I3XClient register/unregister outcomes', () => {
 
     const rejected = { accepted: [], rejected: [{ elementId: 'a', message: 'operation refused' }] }
     await expect(client.registerMonitoredItems('s', ['a'], 0)).resolves.toEqual(rejected)
-    await expect(client.unregisterMonitoredItems('s', ['a'], 0)).resolves.toEqual(rejected)
+    await expect(client.unregisterMonitoredItems('s', ['a'])).resolves.toEqual(rejected)
   })
 
-  it('splits mixed per-item results and sends the registration depth on unregister', async () => {
+  it('splits mixed per-item results and omits maxDepth from the unregister body', async () => {
     const { client, fetchStub } = await connectedClient({
       'POST /subscriptions/unregister': jsonResponse({
         success: true,
@@ -582,12 +582,14 @@ describe('I3XClient register/unregister outcomes', () => {
       }),
     })
 
-    await expect(client.unregisterMonitoredItems('s', ['a', 'b'], 0)).resolves.toEqual({
+    await expect(client.unregisterMonitoredItems('s', ['a', 'b'])).resolves.toEqual({
       accepted: ['a'],
       rejected: [{ elementId: 'b', message: 'b not found' }],
     })
     const call = fetchStub.mock.calls.find(([url]) => url.endsWith('/subscriptions/unregister'))!
-    expect(JSON.parse((call[1] as RequestInit).body as string)).toMatchObject({ elementIds: ['a', 'b'], maxDepth: 0 })
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    expect(body).toMatchObject({ subscriptionId: 's', elementIds: ['a', 'b'] })
+    expect(body).not.toHaveProperty('maxDepth')
   })
 
   it('accepts everything on 204 No Content', async () => {

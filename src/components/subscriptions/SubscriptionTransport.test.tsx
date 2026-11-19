@@ -8,10 +8,11 @@ import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { SubscriptionTransportProvider, useSubscriptionTransport } from './SubscriptionTransport'
 
 type BulkCall = (subscriptionId: string, elementIds: string[], maxDepth?: number) => Promise<BulkOutcome>
+type UnregisterCall = (subscriptionId: string, elementIds: string[]) => Promise<BulkOutcome>
 
 const fakeClient = {
   registerMonitoredItems: vi.fn<BulkCall>(),
-  unregisterMonitoredItems: vi.fn<BulkCall>(),
+  unregisterMonitoredItems: vi.fn<UnregisterCall>(),
   getCapabilities: () => null,
 }
 
@@ -20,8 +21,8 @@ vi.mock('../../api/client', async importOriginal => ({
   getClient: () => fakeClient,
 }))
 
-const accept: BulkCall = async (_id, elementIds) => ({ accepted: elementIds, rejected: [] })
-const refuse: BulkCall = async (_id, elementIds) => ({
+const accept = async (_id: string, elementIds: string[]): Promise<BulkOutcome> => ({ accepted: elementIds, rejected: [] })
+const refuse = async (_id: string, elementIds: string[]): Promise<BulkOutcome> => ({
   accepted: [],
   rejected: elementIds.map(elementId => ({ elementId, message: 'operation refused' })),
 })
@@ -49,10 +50,10 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('subscription item actions', () => {
-  it('stops an accepted item, unregistering it at its registration depth', async () => {
+  it('stops an accepted item, unregistering it without a depth field', async () => {
     await renderTransport().stopItem('s', 'line')
 
-    expect(fakeClient.unregisterMonitoredItems).toHaveBeenCalledWith('s', ['line'], 0)
+    expect(fakeClient.unregisterMonitoredItems).toHaveBeenCalledWith('s', ['line'])
     expect(subscription().stoppedItems).toEqual(['line'])
   })
 
