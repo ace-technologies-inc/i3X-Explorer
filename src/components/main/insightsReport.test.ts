@@ -3,14 +3,15 @@ import {
   MIN_NORM_INSTANCES,
   MIN_NORM_LIFT,
   computeInsightsReport,
-  conventionText,
-  deviationHeadline,
-  deviationNorm,
   getInsightsReport,
-  groupLabel,
+  groupPlace,
   nameSignature,
+  normKey,
   normLift,
+  normPredicate,
+  placeLabel,
   wilsonLower,
+  type OutlierGroup,
 } from './insightsReport'
 import { computeModelStats } from './modelStats'
 import type { ObjectInstance, ObjectType } from '../../api/types'
@@ -135,7 +136,8 @@ describe('type profiles', () => {
   it('reports a naming profile only when a dominant informative signature exists', () => {
     const named = pumpsWithSensors(20, [])
     const pump = computeInsightsReport(named, []).profiles.find(p => p.typeId === 'pump')!
-    expect(pump.naming).toMatchObject({ signature: 'A-9', share: 1 })
+    // With a real name that fits: "PMP-0" is read, "A-9" has to be decoded.
+    expect(pump.naming).toMatchObject({ signature: 'A-9', example: 'PMP-0', share: 1 })
 
     // Bare single-word names ("A") are uninformative, no naming profile.
     const words = Array.from({ length: 20 }, (_, i) =>
@@ -157,7 +159,7 @@ describe('conventions', () => {
     )!
     expect(convention.coverage).toBe(1)
     expect(convention.cardinalityText).toBe('exactly 1')
-    expect(conventionText(convention)).toBe('Every Pump contains exactly 1 Vibration Sensor')
+    expect(normPredicate(convention)).toBe('contains exactly 1 Vibration Sensor')
     // And no deviation for a norm without exceptions.
     expect(report.deviations.filter(d => d.kind === 'missing-child')).toHaveLength(0)
   })
@@ -171,15 +173,66 @@ describe('conventions', () => {
     expect(report.deviations.find(d => d.kind === 'missing-child')).toBeDefined()
   })
 
-  it('phrases placement and naming conventions', () => {
+  it('phrases what a convention says its type does, with no subject and no counts', () => {
     const report = computeInsightsReport(pumpsWithSensors(20, []), [
       type('pump', 'Pump'),
       type('stationT', 'Station'),
     ])
     const placement = report.conventions.find(c => c.kind === 'unusual-parent')!
-    expect(conventionText(placement)).toBe('Every Pump sits under a Station')
+    expect(normPredicate(placement)).toBe('sits under a Station')
     const naming = report.conventions.find(c => c.kind === 'naming' && c.typeId === 'pump')!
-    expect(conventionText(naming)).toBe('Every Pump name follows the pattern A-9')
+    // A naming convention is stated with a real name when there is one, and with the bare pattern otherwise.
+    expect(normPredicate(naming, 'PMP-0')).toBe('names look like PMP-0')
+    expect(normPredicate(naming)).toBe('names follow the pattern A-9')
+  })
+
+  it('gives a convention and the deviation listing its exceptions one key', () => {
+    const report = computeInsightsReport(pumpsWithSensors(20, [3]), [type('pump', 'Pump')])
+    const convention = report.conventions.find(c => c.kind === 'missing-child' && c.typeId === 'pump')!
+    const deviation = report.deviations.find(d => d.kind === 'missing-child' && d.typeId === 'pump')!
+    expect(normKey(deviation)).toBe(normKey(convention))
+    // And a different one from the type's other conventions.
+    const others = report.conventions.filter(c => c !== convention).map(normKey)
+    expect(others).not.toContain(normKey(convention))
+  })
+})
+
+describe('places', () => {
+  const group = (over: Partial<OutlierGroup>): OutlierGroup => ({
+    keyId: null,
+    keyLabel: '',
+    subtreeRootId: null,
+    subtreeRootLabel: null,
+    members: [],
+    ...over,
+  })
+
+  it('says where instances sit, including the places that are not a type', () => {
+    expect(placeLabel('lineT', 'Line')).toBe('under a Line')
+    expect(placeLabel(null, '(at root)')).toBe('at the root')
+    expect(placeLabel(null, '(parent not in catalog)')).toBe('under a parent the catalog does not hold')
+    expect(placeLabel(null, '(under untyped objects)')).toBe('under an untyped object')
+  })
+
+  it('says where a group of placement exceptions is', () => {
+    expect(groupPlace('unusual-parent', group({ keyId: 'binT', keyLabel: 'Bin' }))).toBe('under a Bin instead')
+    expect(groupPlace('unusual-parent', group({ keyLabel: '(at root)' }))).toBe('at the root')
+    expect(groupPlace('unusual-parent', group({ keyLabel: '(parent not in catalog)' }))).toBe(
+      'under a parent the catalog does not hold'
+    )
+  })
+
+  it('places a group missing a child by the subtree it is in', () => {
+    expect(groupPlace('missing-child', group({ subtreeRootLabel: 'Line 3' }))).toBe('within Line 3')
+    expect(groupPlace('missing-child', group({}))).toBe('at the top level')
+  })
+
+  it('names a group of differently named objects by one of them, not by its pattern', () => {
+    const member = { elementId: 'p7', label: 'Spare station 7', context: 'Line 3' }
+    expect(groupPlace('naming', group({ keyId: 'A A 9', keyLabel: 'A A 9', members: [member] }))).toBe(
+      'named like Spare station 7'
+    )
+    expect(groupPlace('naming', group({ keyId: '', keyLabel: '(unnamed)', members: [member] }))).toBe('with no name')
   })
 })
 
@@ -223,7 +276,7 @@ describe('deviations', () => {
     expect(group.keyLabel).toBe('Bin')
     expect(group.members.map(m => m.elementId).sort()).toEqual(['plc19', 'plc20'])
     expect(group.subtreeRootLabel).toBe('Site A')
-    expect(groupLabel('unusual-parent', group)).toBe('2 sit under Bin instead, all within Site A')
+    expect(groupPlace('unusual-parent', group)).toBe('under a Bin instead, all within Site A')
     // Disambiguation context on members: the actual parent's label.
     expect(group.members[0].context).toBe('bin')
   })
@@ -285,10 +338,8 @@ describe('deviations', () => {
     expect(naming.signature).toBe('A-9')
     expect(naming.groups[0].keyLabel).toBe('A A')
     expect(naming.groups[0].members[0].elementId).toBe('pump7')
-    expect(deviationNorm(naming)).toBe('19 of 20 Pump names follow A-9')
-    expect(deviationHeadline(naming)).toBe(
-      '19 of 20 Pump names follow A-9, the one exception:'
-    )
+    // The group keeps its signature as its key, and is named by its own member.
+    expect(groupPlace('naming', naming.groups[0])).toBe('named like Odd Name')
   })
 })
 
@@ -328,11 +379,12 @@ describe('informativeness gate', () => {
       c => c.kind === 'unusual-parent' && c.typeId === 'pump'
     )!
     // Still stated (it is true, and the page lists it), just not headline.
-    expect(conventionText(placement)).toBe('Every Pump sits under a Location')
+    expect(normPredicate(placement)).toBe('sits under a Location')
+    expect(placement.coverage).toBe(1)
     expect(placement.notable).toBe(false)
     expect(placement.lift).toBeLessThan(MIN_NORM_LIFT)
     expect(report.summary.conventions).toBe(0)
-    expect(report.summary.trivialConventions).toBeGreaterThan(0)
+    expect(report.conventions.some(convention => !convention.notable)).toBe(true)
   })
 
   it('reports a placement only this type keeps', () => {
@@ -442,8 +494,8 @@ describe('anomalies', () => {
     const anomaly = report.anomalies[0]
     expect(anomaly.elementId).toBe('pump7')
     expect(anomaly.score).toBe(2)
-    expect(anomaly.reasons.join(' ')).toContain('missing Sensor')
-    expect(anomaly.reasons.join(' ')).toContain('sits under Bin')
+    // Each reason is a clause about the object, in the words the page uses.
+    expect(anomaly.reasons).toEqual(['sits under a Bin, not a Station', 'contains no Sensor'])
     // Where it sits, so two same-named objects of one type can't render as
     // identical rows (the failure this list was built to fix).
     expect(anomaly.context).toBe('bin')
@@ -452,6 +504,37 @@ describe('anomalies', () => {
   it('excludes single-norm violators', () => {
     const report = computeInsightsReport(pumpsWithSensors(30, [7]), [])
     expect(report.anomalies).toHaveLength(0)
+  })
+
+  it('says a broken name with a real one, and a place that is not a type as a place', () => {
+    // pump7 is at the root AND named off the pattern. The sensors are renamed so "A-9" stays a Pump convention.
+    const objects = pumpsWithSensors(30, []).map(o => {
+      if (o.elementId === 'pump7') return { ...o, parentId: null, displayName: 'Odd Name' }
+      if (o.typeId === 'sensor') return { ...o, displayName: `Vibration ${o.elementId}` }
+      return o
+    })
+    const report = computeInsightsReport(objects, [type('pump', 'Pump'), type('stationT', 'Station')])
+    expect(report.anomalies[0].reasons).toEqual(['sits at the root, not under a Station', 'name does not look like PMP-0'])
+  })
+
+  it('lists every one of them, the most conventions broken first', () => {
+    // 40 pumps of 1,000 off two norms each (wrong parent, no sensor), and one off a third as well.
+    // 4% of the type: few enough to be exceptions, where 5% in one place would be a second population.
+    const objects = pumpsWithSensors(1000, Array.from({ length: 40 }, (_, i) => i)).map(o => {
+      const index = o.typeId === 'pump' ? Number(o.elementId.slice(4)) : -1
+      if (index >= 0 && index < 40) return { ...o, parentId: 'bin', ...(index === 39 ? { displayName: 'Odd Name' } : {}) }
+      if (o.typeId === 'sensor') return { ...o, displayName: `Vibration ${o.elementId}` }
+      return o
+    })
+    objects.push(obj('bin', { typeId: 'binT' }))
+    const report = computeInsightsReport(objects, [type('pump', 'Pump'), type('sensor', 'Sensor'), type('stationT', 'Station')])
+
+    // Not a "top 12": a list nobody can see the rest of is a dead end.
+    expect(report.anomalies).toHaveLength(40)
+    expect(report.anomalies[0]).toMatchObject({ elementId: 'pump39', score: 3 })
+    expect(report.anomalies.slice(1).every(anomaly => anomaly.score === 2)).toBe(true)
+    // Ties are ordered by name, so the list does not reshuffle between refreshes.
+    expect(report.anomalies[1].label <= report.anomalies[2].label).toBe(true)
   })
 })
 
@@ -489,7 +572,6 @@ describe('data quality', () => {
     const report = computeInsightsReport(objects, types)
 
     expect(report.dataQuality.unusedTypes).toHaveLength(3)
-    expect(report.summary.unusedTypes).toBe(3)
     expect(report.summary.dataQualityIssues).toBe(1) // the orphan, nothing else
   })
 })
@@ -498,14 +580,10 @@ describe('robustness', () => {
   it('handles empty inputs', () => {
     const report = computeInsightsReport([], [])
     expect(report.summary).toEqual({
-      typesAnalyzed: 0,
       conventions: 0,
-      trivialConventions: 0,
       conventionsWithExceptions: 0,
-      deviations: 0,
       splits: 0,
       dataQualityIssues: 0,
-      unusedTypes: 0,
     })
   })
 
@@ -521,18 +599,15 @@ describe('robustness', () => {
 
   it('summary counts match section lengths', () => {
     const report = computeInsightsReport(pumpsWithSensors(24, [3, 9]), [type('Unused')])
-    // The headline convention count is the notable ones only; the rest are
-    // still in the array, and the two add up to it.
+    // The headline convention count is the notable ones only; the rest remain
+    // in the report for the Conventions view to fold away.
     expect(report.summary.conventions).toBe(report.conventions.filter(c => c.notable).length)
-    expect(report.summary.conventions + report.summary.trivialConventions).toBe(
-      report.conventions.length
-    )
-    expect(report.summary.deviations).toBe(report.deviations.length)
     expect(report.summary.splits).toBe(report.splits.length)
-    expect(report.summary.typesAnalyzed).toBe(report.profiles.length)
     // Every deviation is the exception list of exactly one notable convention,
-    // so the tiles' overlap is a number the page can state rather than hide.
-    expect(report.summary.conventionsWithExceptions).toBe(report.summary.deviations)
+    // so this count can be derived directly without storing a duplicate.
+    expect(report.summary.conventionsWithExceptions).toBe(
+      report.conventions.filter(convention => convention.notable && convention.coverage < 1).length
+    )
   })
 })
 

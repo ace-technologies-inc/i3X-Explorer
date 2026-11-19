@@ -49,7 +49,7 @@ describe('computeInsightsReport at working scale', () => {
     const ms = performance.now() - start
     console.log(
       `[perf] insights report over ${objects.length.toLocaleString()} objects: ${ms.toFixed(0)}ms, ` +
-        `${report.summary.conventions} conventions · ${report.summary.deviations} deviations · ${report.summary.splits} splits`
+        `${report.summary.conventions} conventions · ${report.deviations.length} deviations · ${report.summary.splits} splits`
     )
 
     // The engineered patterns must actually fall out of the data.

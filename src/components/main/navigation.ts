@@ -26,6 +26,8 @@ export interface ElementNavigation {
    * only useful if it's also the way to go look at them.
    */
   selectType: (typeId: string) => void
+  /** Open a namespace, by its URI. The overview's namespace bars use this, for the same reason. */
+  selectNamespace: (uri: string) => void
   showHome: () => void
 }
 
@@ -101,9 +103,21 @@ export function useElementNavigation(): ElementNavigation {
     selectItem({ type: 'objectType', id: `type:${target.elementId}`, data: target })
   }, [])
 
+  const selectNamespace = useCallback((uri: string) => {
+    const { namespaces, expandedNodes, selectItem } = useExplorerStore.getState()
+    const target = namespaces.find(namespace => namespace.uri === uri)
+    if (!target) return
+
+    const expanded = new Set(expandedNodes)
+    expanded.add('folder:namespaces')
+
+    useExplorerStore.setState({ expandedNodes: expanded })
+    selectItem({ type: 'namespace', id: `ns:${target.uri}`, data: target })
+  }, [])
+
   const showHome = useCallback(() => {
     useExplorerStore.getState().selectItem(null)
   }, [])
 
-  return { selectElement, selectObject, selectType, showHome }
+  return { selectElement, selectObject, selectType, selectNamespace, showHome }
 }

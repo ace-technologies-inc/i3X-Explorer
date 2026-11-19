@@ -5,9 +5,9 @@ import { processObjectResponse } from '../api/objectCatalog'
 
 /**
  * Navigation history. The stack holds *pages*, not selections: a stop is an
- * item plus the detail tab plus the full-panel page, so Back returns to the
- * exact thing you were looking at, including the Relationships tab of an object
- * or the insights page.
+ * item plus the detail tab plus the full-panel page plus the Home tab, so Back
+ * returns to the exact thing you were looking at, including the Relationships
+ * tab of an object or Home's Model insights tab.
  */
 
 function object(elementId: string, parentId?: string): ObjectInstance {
@@ -114,16 +114,16 @@ describe('navigation history', () => {
   it('makes a full-panel page a stop of its own', () => {
     state().selectItem(item('pump'))
     state().setDetailTab('relationships')
-    state().openPage('insights')
+    state().openPage('diff')
 
-    expect(state().activePage).toBe('insights')
+    expect(state().activePage).toBe('diff')
 
     state().goBack()
     expect(state().activePage).toBeNull()
     expect(state().detailTab).toBe('relationships')
 
     state().goForward()
-    expect(state().activePage).toBe('insights')
+    expect(state().activePage).toBe('diff')
   })
 
   it('leaves the page on any navigation, and comes back to it', () => {
@@ -137,19 +137,71 @@ describe('navigation history', () => {
   })
 
   it('leaves the page even when the selection underneath is unchanged', () => {
-    // Insights is opened from Home, so its selection is null throughout: the
-    // Home button has to still be a navigation.
-    state().openPage('insights')
+    // A page opened from Home has a null selection throughout: the Home button
+    // has to still be a navigation.
+    state().openPage('diff')
     state().selectItem(null)
 
     expect(state().activePage).toBeNull()
     expect(state().selectedItem).toBeNull()
   })
 
-  it('only allows one page at a time', () => {
-    state().openPage('insights')
+  it('treats a Home tab as a stop of its own', () => {
+    state().setHomeTab('model')
+    state().setHomeTab('insights')
+    expect(state().homeTab).toBe('insights')
+    expect(state().history).toHaveLength(3)
+
+    state().goBack()
+    expect(state().homeTab).toBe('model')
+    state().goBack()
+    expect(state().homeTab).toBe('overview')
+
+    state().goForward()
+    expect(state().homeTab).toBe('model')
+  })
+
+  it('comes back from an element to the Home tab it was opened from', () => {
+    // Model insights is a tab of Home: Back from a row it listed has to land on it, not on Overview.
+    state().setHomeTab('insights')
+    state().selectItem(item('pump'))
+
+    state().goBack()
+    expect(state().selectedItem).toBeNull()
+    expect(state().homeTab).toBe('insights')
+  })
+
+  it('reopens Home on the tab it was left on', () => {
+    state().setHomeTab('model')
+    state().selectItem(item('pump'))
+    state().selectItem(null)
+
+    expect(state().selectedItem).toBeNull()
+    expect(state().homeTab).toBe('model')
+  })
+
+  it('goes Home when a Home tab is asked for from anywhere else', () => {
+    state().selectItem(item('pump'))
     state().openPage('diff')
-    expect(state().activePage).toBe('diff')
+    state().setHomeTab('insights')
+
+    expect(state().selectedItem).toBeNull()
+    expect(state().activePage).toBeNull()
+    expect(state().homeTab).toBe('insights')
+  })
+
+  it('ignores a repeat of the Home tab it is already on', () => {
+    state().setHomeTab('model')
+    const length = state().history.length
+    state().setHomeTab('model')
+    expect(state().history).toHaveLength(length)
+  })
+
+  it('opens Home on Overview again after a reset', () => {
+    state().setHomeTab('insights')
+    state().reset()
+    expect(state().homeTab).toBe('overview')
+    expect(state().history).toHaveLength(1)
   })
 
   it('ignores a repeat of the stop it is already on', () => {

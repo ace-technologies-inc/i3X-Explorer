@@ -102,8 +102,9 @@ export function Toolbar() {
 
   // Clearing the selection is what "Home" means: the main panel renders its
   // Home shell whenever nothing is selected and no page is open. Selecting is
-  // enough to leave the diff or insights page too, since a selection stop
-  // carries no page, even when the selection itself doesn't change.
+  // enough to leave the diff page too, since a selection stop carries no page,
+  // even when the selection itself doesn't change. Home reopens on the tab it
+  // was last on.
   const showHome = () => selectItem(null)
 
   const handleSnapshotFile = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -2,7 +2,6 @@ import { useExplorerStore } from '../../stores/explorer'
 import { NamespaceDetail } from '../details/NamespaceDetail'
 import { ObjectTypeDetail } from '../details/ObjectTypeDetail'
 import { DiffView } from '../diff/DiffView'
-import { InsightsView } from '../insights/InsightsView'
 import { HomeView } from '../main/HomeView'
 import { ObjectDetailView } from '../main/ObjectDetailView'
 import { SimpleDetailView } from '../main/SimpleDetailView'
@@ -12,17 +11,15 @@ import { PerfProfiler } from '../../diagnostics/PerfProfiler'
 
 /**
  * The main content panel. Top-level states, read straight off the current
- * navigation stop (`stores/explorer.ts`, one entry = item + tab + page):
+ * navigation stop (`stores/explorer.ts`, one entry = item + tab + page + Home tab):
  *
  *   page 'diff'      → snapshot diff
- *   page 'insights'  → model insights
- *   nothing selected → Home shell (model overview)
+ *   nothing selected → Home shell (Overview · Model · Model insights)
  *   object selected  → tabbed element detail
  *   relationship type selected → simple element detail
  *
- * The two full-panel views are mutually exclusive for free: one `page` field
- * can only name one of them, and navigating anywhere pushes a stop with no
- * page. Namespace and object-type selections reuse the same header frame
+ * Navigating anywhere pushes a stop with no page, which is what leaves the
+ * diff. Namespace and object-type selections reuse the same header frame
  * without tabs. The panel never imports the tree; both sides share `selectItem`.
  */
 export function MainPanel() {
@@ -33,14 +30,6 @@ export function MainPanel() {
     return (
       <PerfProfiler id="Diff">
         <DiffView />
-      </PerfProfiler>
-    )
-  }
-
-  if (page === 'insights') {
-    return (
-      <PerfProfiler id="Insights">
-        <InsightsView />
       </PerfProfiler>
     )
   }

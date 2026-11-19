@@ -4,14 +4,14 @@ import {
   computeDepths,
   computeModelStats,
   hasParent,
-  topBy,
   type ModelStats,
 } from './modelStats'
 
 /**
  * The insights report: the schema the instances imply, plus everything that
- * follows or breaks it. One pure computation feeds both the Home summary card
- * and the full Model Insights page, so their numbers can never disagree.
+ * follows or breaks it. One pure computation feeds both the summary card on
+ * Home's Overview tab and its Model insights tab, so their numbers can never
+ * disagree.
  *
  * The organizing idea (from real-catalog feedback): a bare outlier list is
  * lint, not insight. Every statement here is one of four honest kinds:
@@ -74,9 +74,7 @@ export const SPLIT_CONCENTRATION = 0.5
 /** Sub-threshold two-population splits need each side to hold this share. */
 export const SPLIT_MIN_SHARE = 0.1
 /** Example instances carried per type / split population. */
-export const EXAMPLES_PER_TYPE = 3
-/** "Most anomalous objects" list length. */
-export const TOP_ANOMALIES = 12
+const EXAMPLES_PER_TYPE = 3
 /** An object must break this many independent norms to rank as anomalous. */
 export const MIN_ANOMALY_SCORE = 2
 
@@ -115,6 +113,8 @@ export interface ChildStat {
 export interface NamingProfile {
   /** Run-collapsed shape: letters→A, digits→9, separators kept ("PMP-999" → "A-9"). */
   signature: string
+  /** A real name that fits it. "ST-01003" says what "A-9" only encodes. */
+  example: string
   matching: number
   share: number
 }
@@ -223,6 +223,7 @@ export interface AnomalyEntry {
   context: string
   /** Number of independent norms this one object breaks. */
   score: number
+  /** One per norm broken, each a clause about this object: "sits under a Bin, not a Station". */
   reasons: string[]
 }
 
@@ -239,23 +240,13 @@ export interface DataQuality {
 }
 
 export interface InsightsSummary {
-  typesAnalyzed: number
   /** Notable conventions only: the headline number has to mean something. */
   conventions: number
-  /** Norms that hold but match the catalog at large. Browsable, not headline. */
-  trivialConventions: number
-  /**
-   * How many of `conventions` have exceptions. Each of those also appears in
-   * `deviations`, so the two tiles overlap by exactly this much and the page
-   * says so instead of printing two numbers that quietly share rows.
-   */
+  /** How many notable conventions have exceptions; each is also listed as a deviation. */
   conventionsWithExceptions: number
-  deviations: number
   splits: number
   /** Orphans + untyped + duplicate elementIds. Unused types are not issues. */
   dataQualityIssues: number
-  /** Declared types with no instances: informational, see DataQuality. */
-  unusedTypes: number
 }
 
 export interface InsightsReport {
@@ -266,6 +257,11 @@ export interface InsightsReport {
   /** Strength (Wilson) desc. */
   deviations: Deviation[]
   splits: Split[]
+  /**
+   * Every object breaking at least MIN_ANOMALY_SCORE notable norms, the most
+   * first. The FULL list, like a deviation's members: a "top 12" is a list
+   * nobody can see the rest of, so the UI pages it instead.
+   */
   anomalies: AnomalyEntry[]
   dataQuality: DataQuality
 }
@@ -393,6 +389,29 @@ function isRealTypeBucket(key: string): boolean {
   return !(key in SPECIAL_BUCKET_LABELS)
 }
 
+/** The special placement buckets, as places: a label in brackets is a code to decode, not a sentence. */
+const SPECIAL_PLACES: Record<string, string> = {
+  [SPECIAL_BUCKET_LABELS[BUCKET_ROOT]]: 'at the root',
+  [SPECIAL_BUCKET_LABELS[BUCKET_ORPHAN]]: 'under a parent the catalog does not hold',
+  [SPECIAL_BUCKET_LABELS[BUCKET_UNTYPED_PARENT]]: 'under an untyped object',
+}
+
+/**
+ * Where instances sit, from a placement's parent type: "under a Line", "at the
+ * root". `parentTypeId` is null for the buckets that are not a type.
+ */
+export function placeLabel(parentTypeId: string | null, parentTypeLabel: string): string {
+  if (parentTypeId !== null) return `under a ${parentTypeLabel}`
+  return SPECIAL_PLACES[parentTypeLabel] ?? parentTypeLabel
+}
+
+/** Why one object is off a placement norm, as a clause about it: "sits under a Bin, not a Station". */
+function placementReason(bucketKey: string, actualLabel: string, normLabel: string): string {
+  return isRealTypeBucket(bucketKey)
+    ? `sits under a ${actualLabel}, not a ${normLabel}`
+    : `sits ${placeLabel(null, actualLabel)}, not under a ${normLabel}`
+}
+
 /* ── computation ──────────────────────────────────────────────────────────── */
 
 /**
@@ -402,7 +421,7 @@ function isRealTypeBucket(key: string): boolean {
  * computeInsightsReport so the 100k index build and the depth walk (the most
  * expensive linear pass in either module) never run twice per catalog.
  */
-export interface CatalogScan {
+interface CatalogScan {
   index: Map<string, ObjectInstance>
   /** elementId → occurrences beyond the first (only ids that collided). */
   duplicateTally: Map<string, number>
@@ -411,7 +430,7 @@ export interface CatalogScan {
   depths: Map<string, number>
 }
 
-export function scanCatalog(objects: ObjectInstance[]): CatalogScan {
+function scanCatalog(objects: ObjectInstance[]): CatalogScan {
   const index = new Map<string, ObjectInstance>()
   const duplicateTally = new Map<string, number>()
   for (const object of objects) {
@@ -640,6 +659,8 @@ export function computeInsightsReport(
         dominantSignature && namingShare >= NORM_THRESHOLD
           ? {
               signature: dominantSignature.signature,
+              // An informative signature is never empty, so its members all carry a displayName.
+              example: dominantSignature.members[0].displayName || dominantSignature.members[0].elementId,
               matching: dominantSignature.members.length,
               share: namingShare,
             }
@@ -730,10 +751,7 @@ export function computeInsightsReport(
             })
             for (const bucket of outlierBuckets) {
               for (const member of bucket.members) {
-                flag(
-                  member,
-                  `sits under ${bucketLabel(bucket.key)} (${typeLabel} norm: ${bucketLabel(normBucket.key)})`
-                )
+                flag(member, placementReason(bucket.key, bucketLabel(bucket.key), bucketLabel(normBucket.key)))
               }
             }
           }
@@ -814,7 +832,7 @@ export function computeInsightsReport(
           groups: groupBySubtreeRoot(missing, index, rootCache, refOf),
           outlierCount: missing.length,
         })
-        for (const member of missing) flag(member, `missing ${stat.childTypeLabel}`)
+        for (const member of missing) flag(member, `contains no ${stat.childTypeLabel}`)
       }
     }
 
@@ -875,9 +893,11 @@ export function computeInsightsReport(
             groups: deviantGroups,
             outlierCount,
           })
+          // A real name that fits, not the signature: "A-9" has to be decoded, "ST-01003" is read.
+          const fitting = dominantSignature.members[0].displayName || dominantSignature.members[0].elementId
           for (const [candidate, members] of signatureMembers) {
             if (candidate === signature) continue
-            for (const member of members) flag(member, `name breaks ${signature}`)
+            for (const member of members) flag(member, `name does not look like ${fitting}`)
           }
         }
       }
@@ -907,18 +927,19 @@ export function computeInsightsReport(
   )
   splits.sort((a, b) => b.total - a.total || a.typeLabel.localeCompare(b.typeLabel))
 
-  const anomalies: AnomalyEntry[] = topBy(
-    [...anomalyTally.values()].filter(entry => entry.reasons.length >= MIN_ANOMALY_SCORE),
-    entry => entry.reasons.length,
-    TOP_ANOMALIES
-  ).map(entry => ({
-    elementId: entry.object.elementId,
-    label: entry.object.displayName || entry.object.elementId,
-    typeLabel: labelOf(entry.object.typeId ?? ''),
-    context: refOf(entry.object).context,
-    score: entry.reasons.length,
-    reasons: entry.reasons,
-  }))
+  // Every one of them, not a top N: each is also a member of two deviations
+  // above, so this list is bounded by what the report already carries.
+  const anomalies: AnomalyEntry[] = [...anomalyTally.values()]
+    .filter(entry => entry.reasons.length >= MIN_ANOMALY_SCORE)
+    .map(entry => ({
+      elementId: entry.object.elementId,
+      label: entry.object.displayName || entry.object.elementId,
+      typeLabel: labelOf(entry.object.typeId ?? ''),
+      context: refOf(entry.object).context,
+      score: entry.reasons.length,
+      reasons: entry.reasons,
+    }))
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label) || a.elementId.localeCompare(b.elementId))
 
   const unusedTypes = objectTypes
     .filter(type => !instancesByType.has(type.elementId))
@@ -933,19 +954,15 @@ export function computeInsightsReport(
 
   return {
     summary: {
-      typesAnalyzed: profiles.length,
       conventions: notableConventions.length,
-      trivialConventions: conventions.length - notableConventions.length,
       // Every notable norm with exceptions produced exactly one deviation, so
       // this is precisely the overlap between the two headline numbers.
       conventionsWithExceptions: notableConventions.filter(c => c.coverage < 1).length,
-      deviations: deviations.length,
       splits: splits.length,
       // Unused types are deliberately NOT in here: a namespace is a type
       // library, so declaring types this server never instantiates is normal.
-      // Counting them made the page's biggest number its most benign fact.
+      // They remain browsable in dataQuality, but are not an issue count.
       dataQualityIssues: orphans.length + untyped.length + duplicateElementIds.length,
-      unusedTypes: unusedTypes.length,
     },
     profiles,
     conventions,
@@ -1100,69 +1117,53 @@ function subtreeRootOf(
 
 /* ── prose builders (pure, tested; components stay thin) ──────────────────── */
 
-export function conventionText(convention: Convention): string {
-  const { typeLabel, relatedTypeLabel, conforming, total, coverage } = convention
-  const every = coverage === 1
-  const counts = `${conforming.toLocaleString()} of ${total.toLocaleString()}`
-  switch (convention.kind) {
-    case 'missing-child': {
-      const amount = convention.cardinalityText ? `${convention.cardinalityText} ` : 'a '
-      return every
-        ? `Every ${typeLabel} contains ${amount}${relatedTypeLabel}`
-        : `${counts} ${typeLabel} instances contain ${amount}${relatedTypeLabel}`
-    }
+/** What a convention and the deviation listing its exceptions have in common. */
+type Norm = Pick<Convention, 'kind' | 'typeId' | 'relatedTypeId' | 'relatedTypeLabel' | 'signature'> & {
+  cardinalityText?: string
+}
+
+/** One key for a convention and for the deviation that lists its exceptions, so the two can be joined. */
+export function normKey(norm: Pick<Norm, 'kind' | 'typeId' | 'relatedTypeId' | 'signature'>): string {
+  return `${norm.kind}:${norm.typeId}:${norm.relatedTypeId ?? norm.signature ?? ''}`
+}
+
+/**
+ * What a norm says its type does, with no counts and no subject: "sits under a
+ * Line", "contains exactly 1 Measurement", "names look like ST-01003". The
+ * page draws the counts as a meter beside it, and prints the subject once per
+ * type. `example` is a real name that fits a naming norm; without one the
+ * pattern is all there is to print.
+ */
+export function normPredicate(norm: Omit<Norm, 'typeId'>, example?: string | null): string {
+  switch (norm.kind) {
+    case 'missing-child':
+      return `contains ${norm.cardinalityText ? `${norm.cardinalityText} ` : 'a '}${norm.relatedTypeLabel}`
     case 'unusual-parent':
-      return every
-        ? `Every ${typeLabel} sits under a ${relatedTypeLabel}`
-        : `${counts} ${typeLabel} instances sit under a ${relatedTypeLabel}`
+      return `sits under a ${norm.relatedTypeLabel}`
     case 'naming':
-      return every
-        ? `Every ${typeLabel} name follows the pattern ${convention.signature}`
-        : `${counts} ${typeLabel} names follow the pattern ${convention.signature}`
+      return example ? `names look like ${example}` : `names follow the pattern ${norm.signature}`
   }
 }
 
 /**
- * The norm a deviation is measured against, with no exception clause. The Home
- * card shows this alone; the page appends the exceptions.
+ * Where a group of exceptions is, with no count: "under a Bin instead, all
+ * within Site A", "within Line 3", "named like Spare station 7". The count is
+ * drawn beside it. A naming group is named by one of its own members: its key
+ * is a signature ("A A 9"), which the page prints beside this as the pattern.
  */
-export function deviationNorm(deviation: Deviation): string {
-  const { typeLabel, relatedTypeLabel, conforming, total } = deviation
-  const counts = `${conforming.toLocaleString()} of ${total.toLocaleString()}`
-  switch (deviation.kind) {
-    case 'missing-child':
-      return `${counts} ${typeLabel} instances contain a ${relatedTypeLabel}`
-    case 'unusual-parent':
-      return `${counts} ${typeLabel} instances sit under a ${relatedTypeLabel}`
-    case 'naming':
-      return `${counts} ${typeLabel} names follow ${deviation.signature}`
-  }
-}
-
-export function deviationHeadline(deviation: Deviation): string {
-  const { outlierCount } = deviation
-  const rest =
-    outlierCount === 1 ? 'the one exception' : `the ${outlierCount.toLocaleString()} exceptions`
-  return `${deviationNorm(deviation)}, ${rest}:`
-}
-
-export function groupLabel(kind: NormKind, group: OutlierGroup): string {
-  const n = group.members.length.toLocaleString()
-  const suffix =
-    kind === 'unusual-parent' && group.subtreeRootLabel
-      ? `, all within ${group.subtreeRootLabel}`
-      : ''
+export function groupPlace(kind: NormKind, group: OutlierGroup): string {
   switch (kind) {
-    case 'unusual-parent':
-      return group.keyId === null && group.keyLabel === '(at root)'
-        ? `${n} at the root${suffix}`
-        : `${n} sit under ${group.keyLabel} instead${suffix}`
+    case 'unusual-parent': {
+      const place = `${placeLabel(group.keyId, group.keyLabel)}${group.keyId !== null ? ' instead' : ''}`
+      return group.subtreeRootLabel ? `${place}, all within ${group.subtreeRootLabel}` : place
+    }
     case 'missing-child':
-      return group.subtreeRootLabel ? `${n} within ${group.subtreeRootLabel}` : `${n} at the top level`
+      return group.subtreeRootLabel ? `within ${group.subtreeRootLabel}` : 'at the top level'
     case 'naming':
-      return `${n} named like ${group.keyLabel}`
+      return group.keyId === '' ? 'with no name' : `named like ${group.members[0]?.label ?? group.keyLabel}`
   }
 }
+
 
 /* ── shared memo ──────────────────────────────────────────────────────────── */
 

@@ -10,10 +10,6 @@ vi.mock('../diff/DiffView', () => ({
   DiffView: () => null,
 }))
 
-vi.mock('../insights/InsightsView', () => ({
-  InsightsView: () => null,
-}))
-
 vi.mock('../main/HomeView', () => ({
   HomeView: () => null,
 }))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeModelStats, topBy, withOther } from './modelStats'
+import { computeModelStats, listRootObjects, topBy } from './modelStats'
 import type { ObjectInstance } from '../../api/types'
 
 function obj(elementId: string, over: Partial<ObjectInstance> = {}): ObjectInstance {
@@ -29,6 +29,31 @@ describe('computeModelStats', () => {
     expect(stats.byDepth[0]).toMatchObject({ label: 'Root', count: 2 })
     expect(stats.byDepth[1]).toMatchObject({ label: 'Level 1', count: 1 })
     expect(stats.roots).toBe(stats.byDepth[0].count)
+  })
+
+  it('names the parent of each listed object, so same-named ones can be told apart', () => {
+    const stats = computeModelStats(
+      [
+        obj('north', { displayName: 'North' }),
+        obj('south', { displayName: 'South' }),
+        obj('north/assets', { displayName: 'Assets', parentId: 'north' }),
+        obj('south/assets', { displayName: 'Assets', parentId: 'south' }),
+        obj('a', { parentId: 'north/assets' }),
+        obj('b', { parentId: 'north/assets' }),
+        obj('c', { parentId: 'north/assets' }),
+        obj('d', { parentId: 'south/assets' }),
+        obj('e', { parentId: 'south/assets' }),
+        obj('stray', { displayName: 'Stray', parentId: 'not-here' }),
+      ],
+      [],
+      1
+    )
+    expect(stats.hubs.slice(0, 2)).toEqual([
+      { elementId: 'north/assets', label: 'Assets', typeLabel: 'T', parentLabel: 'North', children: 3 },
+      { elementId: 'south/assets', label: 'Assets', typeLabel: 'T', parentLabel: 'South', children: 2 },
+    ])
+    // A root has no parent to name, and neither does an orphan whose parent the catalog lacks.
+    expect(stats.rootObjects.every(root => root.parentLabel === undefined)).toBe(true)
   })
 
   it('terminates on a parentId cycle instead of recursing forever', () => {
@@ -84,21 +109,30 @@ describe('topBy', () => {
   })
 })
 
-describe('withOther', () => {
-  it('folds the tail into an Other row', () => {
-    const tallies = [
-      { key: 'a', label: 'a', count: 10 },
-      { key: 'b', label: 'b', count: 5 },
-      { key: 'c', label: 'c', count: 3 },
-      { key: 'd', label: 'd', count: 2 },
+describe('listRootObjects', () => {
+  it('lists every root, the ones holding the most first, orphans included', () => {
+    const objects = [
+      obj('small', { displayName: 'Small' }),
+      obj('big', { displayName: 'Big', typeId: 'siteT' }),
+      obj('stray', { displayName: 'Stray', parentId: 'not-in-the-catalog' }),
+      obj('big/1', { parentId: 'big' }),
+      obj('big/2', { parentId: 'big' }),
+      obj('small/1', { parentId: 'small' }),
     ]
-    const folded = withOther(tallies, 2)
-    expect(folded).toHaveLength(3)
-    expect(folded[2]).toMatchObject({ label: 'Other (2)', count: 5, isOther: true })
+    const roots = listRootObjects(objects, [{ elementId: 'siteT', displayName: 'Site', namespaceUri: 'urn:ns', schema: {} }])
+
+    // The same test for a root as computeModelStats: nothing to go up to.
+    expect(roots).toHaveLength(computeModelStats(objects, [], 1).roots)
+    expect(roots.map(root => [root.label, root.children])).toEqual([
+      ['Big', 2],
+      ['Small', 1],
+      ['Stray', 0],
+    ])
+    expect(roots[0].typeLabel).toBe('Site')
   })
 
-  it('returns the list unchanged when it fits', () => {
-    const tallies = [{ key: 'a', label: 'a', count: 1 }]
-    expect(withOther(tallies, 8)).toBe(tallies)
+  it('orders roots of the same size by name, and lists a duplicated id once', () => {
+    const roots = listRootObjects([obj('b'), obj('a'), obj('c'), obj('a', { displayName: 'a again' })], [])
+    expect(roots.map(root => root.label)).toEqual(['a again', 'b', 'c'])
   })
 })
