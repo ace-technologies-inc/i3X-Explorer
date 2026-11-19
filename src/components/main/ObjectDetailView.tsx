@@ -10,7 +10,8 @@ import { OverviewTab } from './tabs/OverviewTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
 import { HistoryTab } from './tabs/HistoryTab'
 import { SubtreeTab } from './tabs/SubtreeTab'
-import { BroadcastIcon } from '../common/icons'
+import { BroadcastIcon, CheckIcon, LinkIcon } from '../common/icons'
+import { canLinkElements, copyElementLink } from '../../services/elementLink'
 import { Spinner } from '../common/Spinner'
 import { useObjectDetails } from '../../data/useObjectDetails'
 import { errorText, useObjectValue } from '../../data/queries'
@@ -61,6 +62,15 @@ export function ObjectDetailView({ object: catalogObject }: { object: ObjectInst
     }
     return false
   })
+
+  // "Copied" reverts after a moment; the link carries the tab being read.
+  const [linkCopied, setLinkCopied] = useState(false)
+  useEffect(() => {
+    if (!linkCopied) return
+    const handle = setTimeout(() => setLinkCopied(false), 1500)
+    return () => clearTimeout(handle)
+  }, [linkCopied])
+  const handleCopyLink = () => setLinkCopied(copyElementLink(object.elementId, activeTab))
 
   // Clear subscribe error when the selected object changes
   useEffect(() => {
@@ -149,6 +159,18 @@ export function ObjectDetailView({ object: catalogObject }: { object: ObjectInst
           </div>
 
           <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+            {canLinkElements() && (
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                title="Copy a link that opens this object, on this tab, for anyone with access to the server"
+                aria-label="Copy link to this object"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-i3x-text bg-i3x-surface border border-i3x-border rounded-lg hover:bg-i3x-bg transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+              >
+                {linkCopied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
+                <span className="hidden sm:inline">{linkCopied ? 'Copied' : 'Copy link'}</span>
+              </button>
+            )}
             {isSubscribed ? (
               <button
                 type="button"

@@ -53,24 +53,31 @@ export function buildAncestorChain(
   return chain
 }
 
+/**
+ * Opens a catalog object in the detail view and reveals it in the tree.
+ * Store-only: answers false, changing nothing, when the catalog doesn't hold the element.
+ */
+export function openElement(elementId: string, tab?: DetailTab): boolean {
+  const { objectIndex, expandedNodes, selectItem } = useExplorerStore.getState()
+  const target = objectIndex.get(elementId)
+  if (!target) return false
+
+  // Expand the whole ancestor path in one write before selecting, so the tree
+  // doesn't re-render once per ancestor. Mirrors SearchModal.
+  const expanded = new Set(expandedNodes)
+  expanded.add('folder:hierarchical')
+  for (const ancestor of buildAncestorChain(target, objectIndex)) {
+    expanded.add(`hier:${ancestor.elementId}`)
+  }
+
+  useExplorerStore.setState({ expandedNodes: expanded })
+  selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target }, tab)
+  return true
+}
+
 export function useElementNavigation(): ElementNavigation {
   const selectElement = useCallback((elementId: string, tab?: DetailTab) => {
-    // Store-only resolution. This PR is presentational: if the object isn't
-    // already in the store we no-op rather than fetching it.
-    const { objectIndex, expandedNodes, selectItem } = useExplorerStore.getState()
-    const target = objectIndex.get(elementId)
-    if (!target) return
-
-    // Expand the whole ancestor path in one write before selecting, so the tree
-    // doesn't re-render once per ancestor. Mirrors SearchModal.
-    const expanded = new Set(expandedNodes)
-    expanded.add('folder:hierarchical')
-    for (const ancestor of buildAncestorChain(target, objectIndex)) {
-      expanded.add(`hier:${ancestor.elementId}`)
-    }
-
-    useExplorerStore.setState({ expandedNodes: expanded })
-    selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target }, tab)
+    openElement(elementId, tab)
   }, [])
 
   const selectObject = useCallback((object: ObjectInstance, tab?: DetailTab) => {

@@ -157,10 +157,21 @@ Create a `config.json` alongside `index.html` on the web server:
 |-------|-------------|
 | `serverUrl` | Pre-fills the Server URL field in the connection dialog |
 | `recentUrls` | Pre-populates the Recent Connections list |
+| `explorerUrl` | Address of a hosted web Explorer. The desktop app has no address of its own, so it offers **Copy link** only when this is set (in `i3x-explorer.config.json` beside the executable), and builds its links on it. Read on every launch. The web build links to itself and does not need it |
 
 `config.json` is only applied on a user's **first visit**. Once they have saved settings in their browser, `config.json` is ignored, their local preferences take priority.
 
 The default `config.json` shipped in `dist-web/` points at `https://api.i3x.dev/v1`. Replace it (or delete it) as needed for your deployment.
+
+#### Linking to an object
+
+**Copy link** (the object's header, or right-click a row in the tree or the relationship list) copies an address that opens the Explorer on that object and tab:
+
+```
+https://explorer.example.com/explorer/?server=https%3A%2F%2Fi3x.example.com%2Fv1&element=<elementId>&tab=subtree
+```
+
+The link holds the server URL, the element ID and the tab, never credentials. Opening it pre-fills the server; after you connect, with your own sign-in, the object opens. If the object is not in that server's catalog, or you connect to a different server, the Explorer says so.
 
 #### Deploying from a synced git repo
 

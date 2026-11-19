@@ -3,6 +3,7 @@ import type { DetailTab } from '../../stores/explorer'
 import type { MenuEntry } from '../common/ContextMenu'
 import { copyText, copyTextFrom } from '../common/clipboard'
 import { catalogValueJson } from '../../data/catalogData'
+import { canLinkElements, copyElementLink } from '../../services/elementLink'
 import {
   ClockIcon,
   CollapseAllIcon,
@@ -12,6 +13,7 @@ import {
   ExpandAllIcon,
   FrameIcon,
   HierarchyIcon,
+  LinkIcon,
   TargetIcon,
 } from '../common/icons'
 import type { EgoTreeGroup, EgoTreeNode } from './egoTree'
@@ -187,6 +189,14 @@ export function buildRelationshipNodeMenu(
       disabled: !object.typeId,
       onSelect: () => copyText(object.typeId ?? ''),
     },
+    ...(canLinkElements()
+      ? [{
+          kind: 'action' as const,
+          label: 'Copy link',
+          icon: <LinkIcon size={ICON} />,
+          onSelect: () => copyElementLink(object.elementId),
+        }]
+      : []),
     {
       kind: 'action',
       label: 'Copy object JSON',

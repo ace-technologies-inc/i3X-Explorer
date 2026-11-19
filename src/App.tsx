@@ -13,6 +13,7 @@ import { SubscriptionsDrawer } from './components/subscriptions/SubscriptionsDra
 import { ConnectionDialog } from './components/connection/ConnectionDialog'
 import { UpdateChecker } from './components/updater/UpdateChecker'
 import { TooltipLayer } from './components/common/TooltipLayer'
+import { ElementLinkNotice } from './components/common/ElementLinkNotice'
 import { PerfProfiler } from './diagnostics/PerfProfiler'
 
 function App() {
@@ -74,6 +75,7 @@ function App() {
           <StatusBar />
         </PerfProfiler>
 
+        <ElementLinkNotice />
         {showConnectionDialog && <ConnectionDialog />}
         {/* Desktop-only: the web build has no installer to nag users toward. */}
         {window.electronAPI && <UpdateChecker />}

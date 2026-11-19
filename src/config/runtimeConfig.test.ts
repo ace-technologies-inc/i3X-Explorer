@@ -149,6 +149,14 @@ describe('parseRuntimeConfig: profiles from a config file', () => {
     expect(warnings).toEqual(['OAuth profile name "my-idp" may only use letters and digits; the profile was ignored.'])
   })
 
+  it('reads explorerUrl, the hosted explorer the desktop app links to, and drops a non-http one', () => {
+    expect(parseRuntimeConfig({ explorerUrl: 'https://explorer.example.com/explorer/' }).config.explorerUrl)
+      .toBe('https://explorer.example.com/explorer/')
+    const { config, warnings } = parseRuntimeConfig({ explorerUrl: 'file:///C:/explorer' })
+    expect(config.explorerUrl).toBeUndefined()
+    expect(warnings).toHaveLength(1)
+  })
+
   it('keeps reading serverUrl and recentUrls from the file', () => {
     expect(parseRuntimeConfig({ serverUrl: 'https://i3x.example.com/v1', recentUrls: ['https://a.example.com'] }).config).toEqual({
       serverUrl: 'https://i3x.example.com/v1',
